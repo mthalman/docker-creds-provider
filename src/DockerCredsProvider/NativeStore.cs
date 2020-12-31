@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -65,7 +66,16 @@ namespace DockerCredsProvider
 
             StringBuilder stdOutput = new StringBuilder();
             StringBuilder stdError = new StringBuilder();
-            int exitCode = processService.Run(startInfo, input, GetDataReceivedHandler(stdOutput), GetDataReceivedHandler(stdError));
+
+            int exitCode;
+            try
+            {
+                exitCode = processService.Run(startInfo, input, GetDataReceivedHandler(stdOutput), GetDataReceivedHandler(stdError));
+            }
+            catch (Win32Exception e) when (e.NativeErrorCode == 2)
+            {
+                throw new InvalidOperationException($"Unable to execute the '{startInfo.FileName}' executable. Be sure that Docker is installed and that its bin location is specified in your environment's path.", e);
+            }
 
             if (exitCode != 0)
             {
