@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -51,6 +52,42 @@ namespace DockerCredsProvider.Test
 
             Assert.Equal("testuser", creds.Username);
             Assert.Equal("password", creds.Password);
+        }
+
+        [Fact]
+        public async Task NativeStore_ExeNotFound()
+        {
+            string dockerConfigPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".docker",
+                "config.json");
+
+            string credsStore = "desktop";
+
+            string dockerConfigContent =
+                "{" +
+                $"\"credsStore\": \"{credsStore}\"" +
+                "}";
+
+            Mock<IFileSystem> fileSystemMock = new Mock<IFileSystem>();
+            fileSystemMock
+                .Setup(o => o.FileExists(dockerConfigPath))
+                .Returns(true);
+
+            fileSystemMock
+                .Setup(o => o.FileOpenRead(dockerConfigPath))
+                .Returns(new MemoryStream(Encoding.UTF8.GetBytes(dockerConfigContent)));
+
+            Mock<IProcessService> processServiceMock = new Mock<IProcessService>();
+            processServiceMock
+                .Setup(o => o.Run(
+                    It.Is<ProcessStartInfo>(startInfo => startInfo.FileName == $"docker-credential-{credsStore}"),
+                    "test",
+                    It.IsAny<Action<string?>>(),
+                    It.IsAny<Action<string?>>()))
+                .Throws(new Win32Exception(2));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test"));
         }
 
         [Fact]
