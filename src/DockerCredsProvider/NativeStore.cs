@@ -81,9 +81,9 @@ namespace DockerCredsProvider
             {
                 string err = stdError.Length > 0 ? stdError.ToString() : stdOutput.ToString();
 
-                throw new InvalidOperationException(
-                    $"Failed to execute '{startInfo.FileName} {startInfo.Arguments}'" +
-                    Environment.NewLine + Environment.NewLine + err);
+                throw new CredsNotFoundException(
+                    $"Failed to execute '{startInfo.FileName} {startInfo.Arguments}':" +
+                    Environment.NewLine + err);
             }
 
             return stdOutput.ToString();
