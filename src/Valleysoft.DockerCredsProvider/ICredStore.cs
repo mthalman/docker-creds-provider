@@ -1,6 +1,6 @@
 ﻿using System.Threading.Tasks;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     internal interface ICredStore
     {

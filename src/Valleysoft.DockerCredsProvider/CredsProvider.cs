@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     public static class CredsProvider
     {

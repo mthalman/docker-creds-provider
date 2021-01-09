@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     public class CredsNotFoundException : Exception
     {

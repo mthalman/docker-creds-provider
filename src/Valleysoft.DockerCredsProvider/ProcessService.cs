@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     internal interface IProcessService
     {

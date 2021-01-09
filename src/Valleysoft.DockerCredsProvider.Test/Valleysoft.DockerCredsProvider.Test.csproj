@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
-    <RootNamespace>DockerCredsProvider.Test</RootNamespace>
+    <RootNamespace>Valleysoft.DockerCredsProvider.Test</RootNamespace>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
 
@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DockerCredsProvider\DockerCredsProvider.csproj" />
+    <ProjectReference Include="..\Valleysoft.DockerCredsProvider\Valleysoft.DockerCredsProvider.csproj" />
   </ItemGroup>
 
 </Project>
