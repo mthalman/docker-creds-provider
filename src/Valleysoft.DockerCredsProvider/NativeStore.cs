@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     internal class NativeStore : ICredStore
     {

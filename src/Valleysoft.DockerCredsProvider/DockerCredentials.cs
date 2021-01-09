@@ -1,4 +1,4 @@
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     public class DockerCredentials
     {

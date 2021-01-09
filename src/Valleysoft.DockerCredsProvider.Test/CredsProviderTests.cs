@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Moq;
 using Xunit;
 
-namespace DockerCredsProvider.Test
+namespace Valleysoft.DockerCredsProvider.Test
 {
     public class CredsProviderTests
     {

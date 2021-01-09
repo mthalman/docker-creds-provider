@@ -2,7 +2,7 @@
 using System.Text;
 using System.Threading.Tasks;
 
-namespace DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider
 {
     internal class EncodedStore : ICredStore
     {
