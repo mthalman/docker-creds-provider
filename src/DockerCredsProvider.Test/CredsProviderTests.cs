@@ -87,7 +87,7 @@ namespace DockerCredsProvider.Test
                     It.IsAny<Action<string?>>()))
                 .Throws(new Win32Exception(2));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object));
         }
 
         [Fact]
@@ -127,7 +127,7 @@ namespace DockerCredsProvider.Test
                 })
                 .Returns(1);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
+            await Assert.ThrowsAsync<CredsNotFoundException>(
                 () => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object));
         }
 
@@ -199,7 +199,7 @@ namespace DockerCredsProvider.Test
                 .Setup(o => o.FileOpenRead(dockerConfigPath))
                 .Returns(new MemoryStream(Encoding.UTF8.GetBytes(dockerConfigContent)));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
+            await Assert.ThrowsAsync<CredsNotFoundException>(
                 () => CredsProvider.GetCredentialsAsync("testregistry2", fileSystemMock.Object, Mock.Of<IProcessService>()));
         }
 

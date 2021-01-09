@@ -66,7 +66,7 @@ namespace DockerCredsProvider
 
                 if (property.Equals(default(JsonProperty)))
                 {
-                    throw new InvalidOperationException($"No matching auth specified for registry '{registry}' in Docker config '{dockerConfigPath}'.");
+                    throw new CredsNotFoundException($"No matching auth specified for registry '{registry}' in Docker config '{dockerConfigPath}'.");
                 }
 
                 if (property.Value.TryGetProperty("auth", out JsonElement authElement))
