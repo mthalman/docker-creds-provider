@@ -1,9 +1,6 @@
-﻿using System.Threading.Tasks;
+﻿namespace Valleysoft.DockerCredsProvider;
 
-namespace Valleysoft.DockerCredsProvider
+internal interface ICredStore
 {
-    internal interface ICredStore
-    {
-        Task<DockerCredentials> GetCredentialsAsync(string registry);
-    }
+    Task<DockerCredentials> GetCredentialsAsync(string registry);
 }

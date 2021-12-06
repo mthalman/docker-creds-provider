@@ -1,39 +1,37 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
-namespace Valleysoft.DockerCredsProvider
+namespace Valleysoft.DockerCredsProvider;
+
+internal interface IProcessService
 {
-    internal interface IProcessService
-    {
-        int Run(ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived);
-    }
+    int Run(ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived);
+}
 
-    internal class ProcessService : IProcessService
+internal class ProcessService : IProcessService
+{
+    public int Run(ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived)
     {
-        public int Run(ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived)
+        Process process = new()
         {
-            Process process = new Process
-            {
-                StartInfo = startInfo,
-                EnableRaisingEvents = true
-            };
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
 
-            process.OutputDataReceived += (sender, args) => outputDataReceived(args.Data);
-            process.ErrorDataReceived += (sender, args) => errorDataReceived(args.Data);
+        process.OutputDataReceived += (sender, args) => outputDataReceived(args.Data);
+        process.ErrorDataReceived += (sender, args) => errorDataReceived(args.Data);
 
-            process.Start();
+        process.Start();
 
-            if (input is not null)
-            {
-                process.StandardInput.WriteLine(input);
-                process.StandardInput.Close();
-            }
-
-            process.BeginErrorReadLine();
-            process.BeginOutputReadLine();
-            process.WaitForExit();
-
-            return process.ExitCode;
+        if (input is not null)
+        {
+            process.StandardInput.WriteLine(input);
+            process.StandardInput.Close();
         }
+
+        process.BeginErrorReadLine();
+        process.BeginOutputReadLine();
+        process.WaitForExit();
+
+        return process.ExitCode;
     }
 }
