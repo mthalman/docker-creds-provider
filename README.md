@@ -10,4 +10,4 @@ DockerCredentials dockerHubCreds = await CredsProvider.GetCredentialsAsync("http
 DockerCredentials privateRepoCreds = await CredsProvider.GetCredentialsAsync("contoso.azurecr.io");
 ```
 
-The library is available as a NuGet package: [DockerCredsProvider](https://www.nuget.org/packages/DockerCredsProvider/).
+The library is available as a NuGet package: [Valleysoft.DockerCredsProvider](https://www.nuget.org/packages/Valleysoft.DockerCredsProvider/).
