@@ -10,6 +10,9 @@ internal class NativeStore : ICredStore
     private readonly string credHelperName;
     private readonly IProcessService processService;
 
+    // A username of <token> indicates the secret is an identity token
+    // See https://docs.docker.com/engine/reference/commandline/login/#credential-helper-protocol
+    private const string TokenSpecifier = "<token>";
 
     public NativeStore(string credHelperName, IProcessService processService)
     {
@@ -31,10 +34,10 @@ internal class NativeStore : ICredStore
             username = usernameElement.GetString();
         }
 
-        string? secret = null;
+        string? password = null;
         if (configDoc.RootElement.TryGetProperty(Secret, out JsonElement secretElement))
         {
-            secret = secretElement.GetString();
+            password = secretElement.GetString();
         }
 
         if (username is null)
@@ -42,12 +45,19 @@ internal class NativeStore : ICredStore
             throw new InvalidOperationException($"Output of cred helper doesn't contain '{Username}': {output}");
         }
 
-        if (secret is null)
+        if (password is null)
         {
             throw new InvalidOperationException($"Output of cred helper doesn't contain '{Secret}': {output}");
         }
 
-        return new DockerCredentials(username, secret);
+        string? identityToken = null;
+        if (username == TokenSpecifier)
+        {
+            identityToken = password;
+            password = null;
+        }
+
+        return new DockerCredentials(username, password, identityToken);
     }
 
     private string ExecuteCredHelper(string command, string? input)
