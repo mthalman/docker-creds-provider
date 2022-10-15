@@ -65,20 +65,7 @@ public static class CredsProvider
                 throw new CredsNotFoundException($"No matching auth specified for registry '{registry}' in Docker config '{dockerConfigPath}'.");
             }
 
-            if (property.Value.TryGetProperty("auth", out JsonElement authElement))
-            {
-                string? encodedValue = authElement.GetString();
-                if (encodedValue is null)
-                {
-                    throw new JsonException($"No auth value specified for registry '{registry}' in Docker config '{dockerConfigPath}'.");
-                }
-
-                return new EncodedStore(encodedValue);
-            }
-            else
-            {
-                throw new JsonException($"Auth property doesn't exist for registry '{registry}' in Docker config '{dockerConfigPath}'.");
-            }
+            return new EncodedStore(property, dockerConfigPath);
         }
 
         throw new JsonException($"Unable to find credential information in Docker config '{dockerConfigPath}'.");
