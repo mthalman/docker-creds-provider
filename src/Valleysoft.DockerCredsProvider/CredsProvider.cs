@@ -5,7 +5,7 @@ namespace Valleysoft.DockerCredsProvider;
 public static class CredsProvider
 {
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
-        GetCredentialsAsync(registry, new FileSystem(), new ProcessService(), new Environment());
+        GetCredentialsAsync(registry, new FileSystem(), new ProcessService(), new EnvironmentWrapper());
 
     internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
@@ -24,7 +24,7 @@ public static class CredsProvider
                 return Path.Combine(configDirectory, "config.json");
             } else {
                 return Path.Combine(
-                    env.GetUserProfilePath(),
+                    env.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".docker",
                     "config.json");
             }

@@ -90,7 +90,7 @@ internal class NativeStore : ICredStore
 
             throw new CredsNotFoundException(
                 $"Failed to execute '{startInfo.FileName} {startInfo.Arguments}':" +
-                System.Environment.NewLine + err);
+                Environment.NewLine + err);
         }
 
         return stdOutput.ToString();

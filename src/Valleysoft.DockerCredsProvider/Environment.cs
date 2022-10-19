@@ -1,14 +1,16 @@
+using System;
+
 namespace Valleysoft.DockerCredsProvider;
 
 internal interface IEnvironment
 {
     string? GetEnvironmentVariable(string variable);
-    string GetUserProfilePath();
+    string GetFolderPath(Environment.SpecialFolder folder);
 }
 
-internal class Environment : IEnvironment
+internal class EnvironmentWrapper : IEnvironment
 {
-    public string? GetEnvironmentVariable(string variable) => System.Environment.GetEnvironmentVariable(variable);
+    public string? GetEnvironmentVariable(string variable) => Environment.GetEnvironmentVariable(variable);
 
-    public string GetUserProfilePath() => System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+    public string GetFolderPath(Environment.SpecialFolder folder) => Environment.GetFolderPath(folder);
 }

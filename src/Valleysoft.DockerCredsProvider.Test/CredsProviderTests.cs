@@ -13,7 +13,7 @@ public class CredsProviderTests
 
     public CredsProviderTests() {
         var envMock = new Mock<IEnvironment>();
-        envMock.Setup(e => e.GetUserProfilePath()).Returns(new Environment().GetUserProfilePath());
+        envMock.Setup(e => e.GetFolderPath(Environment.SpecialFolder.UserProfile)).Returns(new EnvironmentWrapper().GetFolderPath(Environment.SpecialFolder.UserProfile));
         DefaultEnvironmentMock = envMock.Object;
     }
 
@@ -21,7 +21,7 @@ public class CredsProviderTests
     public async Task NativeStore()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -65,7 +65,7 @@ public class CredsProviderTests
     public async Task NativeStore_Token()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -109,7 +109,7 @@ public class CredsProviderTests
     public async Task NativeStore_ExeNotFound()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -145,7 +145,7 @@ public class CredsProviderTests
     public async Task NativeStore_Error()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -186,7 +186,7 @@ public class CredsProviderTests
     public async Task EncodedStore()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -224,7 +224,7 @@ public class CredsProviderTests
     public async Task EncodedStore_NoMatch()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -259,7 +259,7 @@ public class CredsProviderTests
     public async Task EncodedStore_NoUsername()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -295,7 +295,7 @@ public class CredsProviderTests
     public async Task EncodedStore_NoPassword()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -331,7 +331,7 @@ public class CredsProviderTests
     public async Task EncodedStore_NoSeparator()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -367,7 +367,7 @@ public class CredsProviderTests
     public async Task EncodedStore_IdentityTokenWithUsernamePasswordSeparator()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -406,7 +406,7 @@ public class CredsProviderTests
     public async Task EncodedStore_IdentityTokenWithoutUsernamePasswordSeparator()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
@@ -450,7 +450,7 @@ public class CredsProviderTests
     public async Task ConfigFileDoesNotExist()
     {
         string dockerConfigPath = Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
 
