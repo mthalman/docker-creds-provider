@@ -5,25 +5,34 @@ namespace Valleysoft.DockerCredsProvider;
 public static class CredsProvider
 {
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
-        GetCredentialsAsync(registry, new FileSystem(), new ProcessService());
+        GetCredentialsAsync(registry, new FileSystem(), new ProcessService(), new EnvironmentWrapper());
 
-    internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService)
+    internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
         if (registry is null)
         {
             throw new ArgumentNullException(nameof(registry));
         }
 
-        ICredStore credStore = await GetCredStoreAsync(registry, fileSystem, processService);
+        ICredStore credStore = await GetCredStoreAsync(registry, fileSystem, processService, environment);
         return await credStore.GetCredentialsAsync(registry);
     }
 
-    private static async Task<ICredStore> GetCredStoreAsync(string registry, IFileSystem fileSystem, IProcessService processService)
+    private static string GetConfigFilePath(IEnvironment env) {
+        if (env.GetEnvironmentVariable("DOCKER_CONFIG") is string configDirectory 
+            && !System.String.IsNullOrEmpty(configDirectory)) {
+                return Path.Combine(configDirectory, "config.json");
+            } else {
+                return Path.Combine(
+                    env.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".docker",
+                    "config.json");
+            }
+    }
+
+    private static async Task<ICredStore> GetCredStoreAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
-        string dockerConfigPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".docker",
-            "config.json");
+        string dockerConfigPath = GetConfigFilePath(environment);
 
         if (!fileSystem.FileExists(dockerConfigPath))
         {
