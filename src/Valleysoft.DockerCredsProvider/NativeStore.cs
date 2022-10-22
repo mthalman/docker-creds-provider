@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -9,15 +10,17 @@ internal class NativeStore : ICredStore
 {
     private readonly string credHelperName;
     private readonly IProcessService processService;
+    private readonly IFileSystem fileSystem;
 
     // A username of <token> indicates the secret is an identity token
     // See https://docs.docker.com/engine/reference/commandline/login/#credential-helper-protocol
     private const string TokenSpecifier = "<token>";
 
-    public NativeStore(string credHelperName, IProcessService processService)
+    public NativeStore(string credHelperName, IProcessService processService, IFileSystem fileSystem)
     {
         this.credHelperName = credHelperName;
         this.processService = processService;
+        this.fileSystem = fileSystem;
     }
 
     public async Task<DockerCredentials> GetCredentialsAsync(string registry)
@@ -61,11 +64,17 @@ internal class NativeStore : ICredStore
     }
 
     private string ExecuteCredHelper(string command, string? input)
-    {
-        ProcessStartInfo startInfo = new($"docker-credential-{credHelperName}", command)
+    {   
+        var helperName = $"docker-credential-{this.credHelperName}";
+        var commandPath = fileSystem.LocateExecutable(helperName);
+        if (commandPath is null) {
+            throw new InvalidOperationException($"Unable to locate {helperName} on the system PATH. Be sure that the directory containing {helperName} is on your PATH.");
+        }
+        ProcessStartInfo startInfo = new(commandPath, command)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = false,
+            UseShellExecute = false,
             RedirectStandardInput = input is not null,
             RedirectStandardOutput = true,
             RedirectStandardError = true

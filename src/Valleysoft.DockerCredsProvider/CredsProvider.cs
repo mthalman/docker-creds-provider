@@ -51,7 +51,7 @@ public static class CredsProvider
                 throw new JsonException($"Name of the credHelper for host '{registry}' was not set in Docker config {dockerConfigPath}.");
             }
 
-            return new NativeStore(credHelperName, processService);
+            return new NativeStore(credHelperName, processService, fileSystem);
         }
 
         if (configDoc.RootElement.TryGetProperty("credsStore", out JsonElement credsStoreElement))
@@ -62,7 +62,7 @@ public static class CredsProvider
                 throw new JsonException($"Name of the credsStore was not set in Docker config {dockerConfigPath}.");
             }
 
-            return new NativeStore(credHelperName, processService);
+            return new NativeStore(credHelperName, processService, fileSystem);
         }
 
         if (configDoc.RootElement.TryGetProperty("auths", out JsonElement authsElement))

@@ -14,7 +14,7 @@ internal class ProcessService : IProcessService
         Process process = new()
         {
             StartInfo = startInfo,
-            EnableRaisingEvents = true
+            EnableRaisingEvents = true,
         };
 
         process.OutputDataReceived += (sender, args) => outputDataReceived(args.Data);

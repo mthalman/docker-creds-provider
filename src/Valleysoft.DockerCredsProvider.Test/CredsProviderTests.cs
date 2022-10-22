@@ -26,6 +26,7 @@ public class CredsProviderTests
             "config.json");
 
         string credsStore = "desktop";
+        string credsStoreBinary = $"docker-credential-{credsStore}";
 
         string dockerConfigContent =
             "{" +
@@ -41,10 +42,14 @@ public class CredsProviderTests
             .Setup(o => o.FileOpenRead(dockerConfigPath))
             .Returns(new MemoryStream(Encoding.UTF8.GetBytes(dockerConfigContent)));
 
+        fileSystemMock
+            .Setup(o => o.LocateExecutable(credsStoreBinary))
+            .Returns($"/a/b/c/{credsStoreBinary}");
+
         Mock<IProcessService> processServiceMock = new();
         processServiceMock
             .Setup(o => o.Run(
-                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName == $"docker-credential-{credsStore}"),
+                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(credsStoreBinary)),
                 "test",
                 It.IsAny<Action<string?>>(),
                 It.IsAny<Action<string?>>()))
@@ -70,6 +75,7 @@ public class CredsProviderTests
             "config.json");
 
         string credsStore = "desktop";
+        string credsStoreBinary = $"docker-credential-{credsStore}";
 
         string dockerConfigContent =
             "{" +
@@ -85,10 +91,14 @@ public class CredsProviderTests
             .Setup(o => o.FileOpenRead(dockerConfigPath))
             .Returns(new MemoryStream(Encoding.UTF8.GetBytes(dockerConfigContent)));
 
+        fileSystemMock
+            .Setup(o => o.LocateExecutable(credsStoreBinary))
+            .Returns($"/a/b/c/{credsStoreBinary}");
+
         Mock<IProcessService> processServiceMock = new();
         processServiceMock
             .Setup(o => o.Run(
-                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName == $"docker-credential-{credsStore}"),
+                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(credsStoreBinary)),
                 "test",
                 It.IsAny<Action<string?>>(),
                 It.IsAny<Action<string?>>()))
@@ -150,6 +160,7 @@ public class CredsProviderTests
             "config.json");
 
         string credsStore = "desktop";
+        string credsStoreBinary = $"docker-credential-{credsStore}";
 
         string dockerConfigContent =
             "{" +
@@ -165,10 +176,14 @@ public class CredsProviderTests
             .Setup(o => o.FileOpenRead(dockerConfigPath))
             .Returns(new MemoryStream(Encoding.UTF8.GetBytes(dockerConfigContent)));
 
+        fileSystemMock
+            .Setup(o => o.LocateExecutable(credsStoreBinary))
+            .Returns($"/a/b/c/{credsStoreBinary}");
+
         Mock<IProcessService> processServiceMock = new();
         processServiceMock
             .Setup(o => o.Run(
-                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName == $"docker-credential-{credsStore}"),
+                It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(credsStoreBinary)),
                 "test",
                 It.IsAny<Action<string?>>(),
                 It.IsAny<Action<string?>>()))
