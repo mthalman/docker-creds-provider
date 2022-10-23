@@ -1,6 +1,7 @@
 using Moq;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -487,7 +488,7 @@ public class CredsProviderTests
         Assert.Null(creds.Password);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task NativeStore_ProbesPATHEXTForHelperBinaries() {
         string dockerConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -536,7 +537,7 @@ public class CredsProviderTests
         Assert.Null(creds.Password);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task NativeStore_SupportsPATHEXTPrecedence() {
         string dockerConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
