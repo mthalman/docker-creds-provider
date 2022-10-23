@@ -414,7 +414,7 @@ public class CredsProviderTests
     public async Task NativeStore_UsesDockerConfigEnvironmentVariable() {
         var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetTempFileName());
         var dockerConfigPath = Path.Combine(tempPath, "config.json");
-        
+
         Mock<IEnvironment> envMock = new();
         envMock.Setup(e => e.GetEnvironmentVariable("DOCKER_CONFIG")).Returns(tempPath);
 
@@ -447,7 +447,7 @@ public class CredsProviderTests
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
-        
+
         string helper = "example";
         string fullHelperName = $"docker-credential-{helper}";
         string username = "<token>";
@@ -459,7 +459,7 @@ public class CredsProviderTests
                     $"\"testregistry\": \"{helper}\"" +
                 "}" +
             "}";
-        
+
         // the idea here is that we setup the helper on the second PATH entry,
         // so if we succeed that means we probed.
         var systemPaths = new List<string>{
@@ -493,7 +493,7 @@ public class CredsProviderTests
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".docker",
             "config.json");
-        
+
         string helper = "example";
         string fullHelperName = $"docker-credential-{helper}";
         string username = "<token>";
@@ -505,7 +505,56 @@ public class CredsProviderTests
                     $"\"testregistry\": \"{helper}\"" +
                 "}" +
             "}";
-        
+
+        var pathRoot = "/a";
+        // the idea here is that we set up the helper with a different extension
+        // and prime the system to probe that extension.  if we succeed, that means we
+        // probed as expected.
+        var pathExts = new List<string>{
+            ".ABC",
+            ".XYZ"
+        };
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, dockerConfigContent)
+            .WithFile(Path.Combine(pathRoot, $"{fullHelperName}{pathExts[0]}"))
+            .WithFile(Path.Combine(pathRoot, $"{fullHelperName}{pathExts[1]}"));
+
+        Mock<IEnvironment> envMock = new();
+        envMock.WithSystemProfileFolder();
+        envMock.WithPath(new List<string> { pathRoot });
+        envMock.WithExecutableExtensions(pathExts);
+
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock.StubHelperSuccess($"{helper}{pathExts[0]}", "testregistry",  $"{{ \"Username\": \"{username}\", \"Secret\": \"{token}\" }}");
+
+        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, processServiceMock.Object, envMock.Object);
+
+        Assert.Equal(username, creds.Username);
+        Assert.Equal(token, creds.IdentityToken);
+        Assert.Null(creds.Password);
+    }
+
+    [Fact]
+    public async Task NativeStore_SupportsPATHEXTPrecedence() {
+        string dockerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".docker",
+            "config.json");
+
+        string helper = "example";
+        string fullHelperName = $"docker-credential-{helper}";
+        string username = "<token>";
+        string token = "token";
+
+        string dockerConfigContent =
+            "{" +
+                "\"credHelpers\": {" +
+                    $"\"testregistry\": \"{helper}\"" +
+                "}" +
+            "}";
+
         var pathRoot = "/a";
         // the idea here is that we set up the helper with a different extension
         // and prime the system to probe that extension.  if we succeed, that means we
