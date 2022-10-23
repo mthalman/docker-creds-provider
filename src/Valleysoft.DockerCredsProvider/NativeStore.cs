@@ -71,7 +71,7 @@ internal class NativeStore : ICredStore
             .FirstOrDefault(absoluteCandidatePath => fileSystem.FileExists(absoluteCandidatePath));
 
     private string? ProbePathForNames(List<string> commandNameCandidates) {
-        if (this.environment.GetEnvironmentVariable("PATH") is string path) {
+        if (this.environment.GetEnvironmentVariable("PATH") is string path  && path is not null) {
             return path
                 .Split(Path.PathSeparator)
                 .Select(pathDir => this.CheckForCandidateOnPath(commandNameCandidates, pathDir))
@@ -84,7 +84,7 @@ internal class NativeStore : ICredStore
     private static List<T> Singleton<T>(T item) => new List<T>(1) { item };
 
     private List<string> ExtendViaPathExt(string commandName) {
-        if (environment.GetEnvironmentVariable("PATHEXT") is string pathext) {
+        if (environment.GetEnvironmentVariable("PATHEXT") is string pathext && pathext is not null) {
             var executableExtensions = pathext.Split(';');
             // order is important here - the raw name should come first
             var variations = new List<string>(1 + executableExtensions.Length){

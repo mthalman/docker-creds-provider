@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace Valleysoft.DockerCredsProvider;
+﻿namespace Valleysoft.DockerCredsProvider;
 
 internal interface IFileSystem
 {
@@ -10,12 +8,6 @@ internal interface IFileSystem
 
 internal class FileSystem : IFileSystem
 {
-    private readonly IEnvironment environment;
-
-    public FileSystem(IEnvironment environment) {
-        this.environment = environment;
-    }
-
     public Stream FileOpenRead(string path) => File.OpenRead(path);
 
     public bool FileExists(string path) => File.Exists(path);

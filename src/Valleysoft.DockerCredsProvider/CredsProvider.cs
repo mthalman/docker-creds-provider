@@ -6,7 +6,7 @@ public static class CredsProvider
 {
     private static IEnvironment DefaultEnvironment = new EnvironmentWrapper();
     private static IProcessService DefaultProcessService = new ProcessService();
-    private static IFileSystem DefaultFileSystem = new FileSystem(DefaultEnvironment);
+    private static IFileSystem DefaultFileSystem = new FileSystem();
 
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
         GetCredentialsAsync(registry, DefaultFileSystem, DefaultProcessService, DefaultEnvironment);
