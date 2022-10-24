@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using static Valleysoft.DockerCredsProvider.ListHelper;
 
 namespace Valleysoft.DockerCredsProvider;
  
@@ -80,8 +81,6 @@ internal class NativeStore : ICredStore
             return null;
         }
     }
-
-    private static List<T> Singleton<T>(T item) => new List<T>(1) { item };
 
     private List<string> ExtendViaPathExt(string commandName) {
         if (environment.GetEnvironmentVariable("PATHEXT") is string pathext && pathext is not null) {
