@@ -474,8 +474,9 @@ public class CredsProviderTests
             .WithFile(Path.Combine(systemPaths[1], fullHelperName));
 
         Mock<IEnvironment> envMock = new();
-        envMock.WithSystemProfileFolder();
-        envMock.WithPath(systemPaths);
+        envMock
+            .WithSystemProfileFolder()
+            .WithPath(systemPaths);
         envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns<string>(null);
 
         Mock<IProcessService> processServiceMock = new();
@@ -523,9 +524,10 @@ public class CredsProviderTests
             .WithFile(Path.Combine(pathRoot, $"{fullHelperName}{pathExts[1]}"));
 
         Mock<IEnvironment> envMock = new();
-        envMock.WithSystemProfileFolder();
-        envMock.WithPath(new List<string> { pathRoot });
-        envMock.WithExecutableExtensions(pathExts);
+        envMock
+            .WithSystemProfileFolder()
+            .WithPath(new List<string> { pathRoot })
+            .WithExecutableExtensions(pathExts);
 
         Mock<IProcessService> processServiceMock = new();
         processServiceMock.StubHelperSuccess($"{helper}{pathExts[0]}", "testregistry",  $"{{ \"Username\": \"{username}\", \"Secret\": \"{token}\" }}");
@@ -571,9 +573,10 @@ public class CredsProviderTests
             .WithFile(Path.Combine(pathRoot, $"{fullHelperName}{pathExts[1]}"));
 
         Mock<IEnvironment> envMock = new();
-        envMock.WithSystemProfileFolder();
-        envMock.WithPath(new List<string> { pathRoot });
-        envMock.WithExecutableExtensions(pathExts);
+        envMock
+            .WithSystemProfileFolder()
+            .WithPath(new List<string> { pathRoot })
+            .WithExecutableExtensions(pathExts);
 
         Mock<IProcessService> processServiceMock = new();
         processServiceMock.StubHelperSuccess($"{helper}{pathExts[1]}", "testregistry",  $"{{ \"Username\": \"{username}\", \"Secret\": \"{token}\" }}");
