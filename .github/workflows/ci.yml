@@ -12,7 +12,14 @@ defaults:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: "Build and test on ${{ matrix.os }}"
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v2
@@ -32,7 +39,7 @@ jobs:
 
       - name: Test
         run: dotnet test --no-restore -v normal -c Release -r test-results -l trx
-        
+
       - name: Upload Test Results
         uses: actions/upload-artifact@v2.1.4
         if: always()

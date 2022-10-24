@@ -4,8 +4,12 @@ namespace Valleysoft.DockerCredsProvider;
 
 public static class CredsProvider
 {
+    private static IEnvironment DefaultEnvironment = new EnvironmentWrapper();
+    private static IProcessService DefaultProcessService = new ProcessService();
+    private static IFileSystem DefaultFileSystem = new FileSystem();
+
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
-        GetCredentialsAsync(registry, new FileSystem(), new ProcessService(), new EnvironmentWrapper());
+        GetCredentialsAsync(registry, DefaultFileSystem, DefaultProcessService, DefaultEnvironment);
 
     internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
@@ -19,7 +23,7 @@ public static class CredsProvider
     }
 
     private static string GetConfigFilePath(IEnvironment env) {
-        if (env.GetEnvironmentVariable("DOCKER_CONFIG") is string configDirectory 
+        if (env.GetEnvironmentVariable("DOCKER_CONFIG") is string configDirectory
             && !System.String.IsNullOrEmpty(configDirectory)) {
                 return Path.Combine(configDirectory, "config.json");
             } else {
@@ -51,7 +55,7 @@ public static class CredsProvider
                 throw new JsonException($"Name of the credHelper for host '{registry}' was not set in Docker config {dockerConfigPath}.");
             }
 
-            return new NativeStore(credHelperName, processService);
+            return new NativeStore(credHelperName, processService, fileSystem, environment);
         }
 
         if (configDoc.RootElement.TryGetProperty("credsStore", out JsonElement credsStoreElement))
@@ -62,7 +66,7 @@ public static class CredsProvider
                 throw new JsonException($"Name of the credsStore was not set in Docker config {dockerConfigPath}.");
             }
 
-            return new NativeStore(credHelperName, processService);
+            return new NativeStore(credHelperName, processService, fileSystem, environment);
         }
 
         if (configDoc.RootElement.TryGetProperty("auths", out JsonElement authsElement))
