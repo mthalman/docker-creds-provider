@@ -83,5 +83,4 @@ public static class MockExtensions {
         mock.Setup(o => o.GetFolderPath(It.IsAny<Environment.SpecialFolder>())).Returns<Environment.SpecialFolder>(arg => new EnvironmentWrapper().GetFolderPath(arg));
         return mock;
     }
-
 }
