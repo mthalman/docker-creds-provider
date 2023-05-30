@@ -604,15 +604,13 @@ public class CredsProviderTests
             string registry = $"testregistry{idx}";
             string encodedCreds = Convert.ToBase64String(Encoding.UTF8.GetBytes($"testuser{idx}:testpass{idx}"));
             string dockerConfigContent =
-            $$"""
-            {
-                "auths": {
-                    "{{registry}}": {
-                        "auth": "{{encodedCreds}}"
-                    }
-                }
-            }
-            """;
+            "{" +
+                "\"auths\": {" +
+                    $"\"{registry}\": {{" +
+                        $"\"auth\": \"{encodedCreds}\"" +
+                    "}" +
+                "}" +
+            "}";
 
             fileSystemMock.WithFile(dockerConfigPath, dockerConfigContent);
         }
