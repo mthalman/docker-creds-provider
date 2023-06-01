@@ -22,6 +22,9 @@ public static class CredsProvider
         return await credStore.GetCredentialsAsync(registry);
     }
 
+    /// <summary>
+    /// Returns a set of candidate file paths for the config file that should be checked in the order listed (i.e. they are listed in priority order).
+    /// </summary>
     internal static string[] GetConfigFilePaths(IEnvironment env)
     {
         if (env.GetEnvironmentVariable("REGISTRY_AUTH_FILE") is { Length: > 0 } configFile)
