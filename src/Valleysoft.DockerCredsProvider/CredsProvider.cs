@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Valleysoft.DockerCredsProvider;
@@ -59,6 +60,7 @@ public static class CredsProvider
     private static async Task<ICredStore> GetCredStoreAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
         string[] configFilePaths = GetConfigFilePaths(environment);
+        string hostname = ConvertToHostname(registry);
 
         bool configFileFound = false;
         foreach (var configFilePath in configFilePaths)
@@ -98,7 +100,7 @@ public static class CredsProvider
 
             if (configDoc.RootElement.TryGetProperty("auths", out JsonElement authsElement))
             {
-                JsonProperty property = authsElement.EnumerateObject().FirstOrDefault(prop => prop.Name == registry);
+                JsonProperty property = authsElement.EnumerateObject().FirstOrDefault(prop => ConvertToHostname(prop.Name).Equals(hostname, StringComparison.InvariantCultureIgnoreCase));
 
                 if (property.Equals(default(JsonProperty)))
                 {
@@ -115,5 +117,26 @@ public static class CredsProvider
         }
 
         throw new CredsNotFoundException($"No matching auth specified for registry '{registry}' in Docker config.");
+    }
+
+    private static string ConvertToHostname(string input)
+    {
+        const string Https = "https://";
+        const string Http = "http://";
+        
+        string stripped = input;
+
+        if (input.StartsWith(Http)) 
+        {
+            stripped = input.Replace(Http, string.Empty);
+        }
+        else if (input.StartsWith(Https)) 
+        {
+            stripped = input.Replace(Https, string.Empty);
+        }
+
+        var hostname = stripped.Split('/')[0];
+
+        return hostname;
     }
 }
