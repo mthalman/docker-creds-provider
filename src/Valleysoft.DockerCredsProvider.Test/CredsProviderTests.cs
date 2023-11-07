@@ -657,4 +657,41 @@ public class CredsProviderTests
         string[] configFilePath = CredsProvider.GetConfigFilePaths(envMock.Object);
         Assert.Equal(expectedConfigFilePaths, configFilePath);
     }
+
+    [Theory]
+    [InlineData("registry", "https://registry")]
+    [InlineData("https://registry", "registry")]
+    [InlineData("http://registry", "registry")]
+    [InlineData("registry", "http://registry")]
+    [InlineData("registry/path", "http://registry")]
+    [InlineData("registry", "http://registry/path")]
+    public async Task EncodedStore_DoesMatchRegistryByHostnameOnly(string configRegistry, string givenRegistry) {
+        string dockerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".docker",
+            "config.json");
+
+        string username = "testuser";
+        string password = "testpass";
+
+        string encodedCreds = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+
+        string dockerConfigContent =
+            "{" +
+                "\"auths\": {" +
+                    $"\"{configRegistry}\":" + "{" +
+                        $"\"auth\": \"{encodedCreds}\"" +
+                    "}" +
+                "}" +
+            "}";
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, dockerConfigContent);
+
+        var result = await CredsProvider.GetCredentialsAsync(givenRegistry, fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock);
+
+        Assert.Equal(result.Username, username);
+        Assert.Equal(result.Password, password);
+    }
 }
