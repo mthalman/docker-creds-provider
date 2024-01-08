@@ -440,7 +440,7 @@ public class CredsProviderTests
 
         var creds = await CredsProvider.GetCredentialsAsync("dummyRegistry.io", fileSystemMock.Object, Mock.Of<ProcessService>(), envMock.Object);
         Assert.Equal("foo", creds.Username);
-        Assert.Equal("bar", creds.Password);
+        Assert.Equal(password, creds.Password);
     }
 
     [Fact]
