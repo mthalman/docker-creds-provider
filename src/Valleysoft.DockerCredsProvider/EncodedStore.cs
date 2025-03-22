@@ -5,7 +5,7 @@ namespace Valleysoft.DockerCredsProvider;
 
 internal class EncodedStore : ICredStore
 {
-    private readonly DockerCredentials creds;
+    private readonly DockerCredentials _creds;
 
     public EncodedStore(JsonProperty registryProperty, string configPath)
     {
@@ -19,13 +19,8 @@ internal class EncodedStore : ICredStore
 
         if (registryProperty.Value.TryGetProperty("auth", out JsonElement authElement))
         {
-            string? encodedValue = authElement.GetString();
-            if (encodedValue is null)
-            {
-                throw new JsonException(
+            string? encodedValue = authElement.GetString() ?? throw new JsonException(
                     $"No auth value specified for registry '{registryProperty.Name}' in Docker config '{configPath}'.");
-            }
-
             credentialEncoding = encodedValue;
         }
         else
@@ -75,8 +70,8 @@ internal class EncodedStore : ICredStore
             }
         }
 
-        creds = new DockerCredentials(username, password, identityToken);
+        _creds = new DockerCredentials(username, password, identityToken);
     }
 
-    public Task<DockerCredentials> GetCredentialsAsync(string registry) => Task.FromResult(creds);
+    public Task<DockerCredentials> GetCredentialsAsync(string registry) => Task.FromResult(_creds);
 }

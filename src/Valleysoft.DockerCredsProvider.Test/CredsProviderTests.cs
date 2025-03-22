@@ -1,7 +1,6 @@
 using Moq;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -10,14 +9,14 @@ namespace Valleysoft.DockerCredsProvider.Test;
 
 public class CredsProviderTests
 {
-    IEnvironment DefaultEnvironmentMock;
+    private readonly IEnvironment _defaultEnvironmentMock;
 
     public CredsProviderTests() {
         var envMock = new Mock<IEnvironment>();
         var defaultWrapper = new EnvironmentWrapper();
         envMock.Setup(e => e.GetFolderPath(Environment.SpecialFolder.UserProfile)).Returns(defaultWrapper.GetFolderPath(Environment.SpecialFolder.UserProfile));
         envMock.Setup(e => e.GetEnvironmentVariable(It.IsAny<string>())).Returns<string>(arg => defaultWrapper.GetEnvironmentVariable(arg));
-        DefaultEnvironmentMock = envMock.Object;
+        _defaultEnvironmentMock = envMock.Object;
     }
 
     [Fact]
@@ -50,7 +49,7 @@ public class CredsProviderTests
         Mock<IEnvironment> envMock = new();
         envMock.WithSystemProfileFolder();
         envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
-        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns<string>(null);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
 
         DockerCredentials creds = await CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, envMock.Object);
 
@@ -90,7 +89,7 @@ public class CredsProviderTests
         Mock<IEnvironment> envMock = new();
         envMock.WithSystemProfileFolder();
         envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
-        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns<string>(null);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
 
         DockerCredentials creds = await CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, envMock.Object);
 
@@ -127,7 +126,7 @@ public class CredsProviderTests
                 It.IsAny<Action<string?>>()))
             .Throws(new Win32Exception(2));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, DefaultEnvironmentMock));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, _defaultEnvironmentMock));
     }
 
     [Fact]
@@ -155,7 +154,7 @@ public class CredsProviderTests
         Mock<IEnvironment> envMock = new();
         envMock.WithSystemProfileFolder();
         envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
-        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns<string>(null);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
 
         Mock<IProcessService> processServiceMock = new();
         processServiceMock
@@ -191,7 +190,7 @@ public class CredsProviderTests
         fileSystemMock
             .WithFile(dockerConfigPath, dockerConfigContent);
 
-        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock);
+        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock);
 
         Assert.Equal(username, creds.Username);
         Assert.Equal(password, creds.Password);
@@ -225,7 +224,7 @@ public class CredsProviderTests
             .WithFile(dockerConfigPath, dockerConfigContent);
 
         await Assert.ThrowsAsync<CredsNotFoundException>(
-            () => CredsProvider.GetCredentialsAsync("testregistry2", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock));
+            () => CredsProvider.GetCredentialsAsync("testregistry2", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock));
     }
 
     [Fact]
@@ -255,7 +254,7 @@ public class CredsProviderTests
             .WithFile(dockerConfigPath, dockerConfigContent);
 
         await Assert.ThrowsAsync<JsonException>(() =>
-            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock)
+            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock)
         );
     }
 
@@ -286,7 +285,7 @@ public class CredsProviderTests
             .WithFile(dockerConfigPath, dockerConfigContent);
 
         await Assert.ThrowsAsync<JsonException>(() =>
-            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock)
+            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock)
         );
     }
 
@@ -317,7 +316,7 @@ public class CredsProviderTests
             .WithFile(dockerConfigPath, dockerConfigContent);
 
         await Assert.ThrowsAsync<JsonException>(() =>
-            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock)
+            CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock)
         );
     }
 
@@ -349,7 +348,7 @@ public class CredsProviderTests
         fileSystemMock
             .WithFile(dockerConfigPath, dockerConfigContent);
 
-        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>() ,DefaultEnvironmentMock);
+        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>() ,_defaultEnvironmentMock);
         Assert.Equal(username, creds.Username);
         Assert.Null(creds.Password);
         Assert.Equal(token, creds.IdentityToken);
@@ -382,7 +381,7 @@ public class CredsProviderTests
         fileSystemMock
             .WithFile(dockerConfigPath, dockerConfigContent);
 
-        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock);
+        DockerCredentials creds = await CredsProvider.GetCredentialsAsync("testregistry", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock);
         Assert.Equal(username, creds.Username);
         Assert.Null(creds.Password);
         Assert.Equal(token, creds.IdentityToken);
@@ -408,7 +407,7 @@ public class CredsProviderTests
             .Returns(false);
 
         await Assert.ThrowsAsync<FileNotFoundException>(
-            () => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock));
+            () => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock));
     }
 
     [Fact]
@@ -478,7 +477,7 @@ public class CredsProviderTests
         envMock
             .WithSystemProfileFolder()
             .WithPath(systemPaths);
-        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns<string>(null);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
 
         Mock<IProcessService> processServiceMock = new();
         processServiceMock.StubHelperSuccess(helper, "testregistry",  $"{{ \"Username\": \"{username}\", \"Secret\": \"{token}\" }}");
@@ -618,7 +617,7 @@ public class CredsProviderTests
         for (int idx = 0; idx < configFilePaths.Length; idx++)
         {
             string registry = $"testregistry{idx}";
-            DockerCredentials creds = await CredsProvider.GetCredentialsAsync(registry, fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock);
+            DockerCredentials creds = await CredsProvider.GetCredentialsAsync(registry, fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock);
 
             Assert.Equal($"testuser{idx}", creds.Username);
             Assert.Equal($"testpass{idx}", creds.Password);
@@ -689,7 +688,7 @@ public class CredsProviderTests
         fileSystemMock
             .WithFile(dockerConfigPath, dockerConfigContent);
 
-        var result = await CredsProvider.GetCredentialsAsync(givenRegistry, fileSystemMock.Object, Mock.Of<IProcessService>(), DefaultEnvironmentMock);
+        var result = await CredsProvider.GetCredentialsAsync(givenRegistry, fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock);
 
         Assert.Equal(result.Username, username);
         Assert.Equal(result.Password, password);
