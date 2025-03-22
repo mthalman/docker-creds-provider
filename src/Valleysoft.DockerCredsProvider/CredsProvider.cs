@@ -1,16 +1,15 @@
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace Valleysoft.DockerCredsProvider;
 
 public static class CredsProvider
 {
-    private static IEnvironment DefaultEnvironment = new EnvironmentWrapper();
-    private static IProcessService DefaultProcessService = new ProcessService();
-    private static IFileSystem DefaultFileSystem = new FileSystem();
+    private static readonly IEnvironment _defaultEnvironment = new EnvironmentWrapper();
+    private static readonly IProcessService _defaultProcessService = new ProcessService();
+    private static readonly IFileSystem _defaultFileSystem = new FileSystem();
 
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
-        GetCredentialsAsync(registry, DefaultFileSystem, DefaultProcessService, DefaultEnvironment);
+        GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment);
 
     internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
     {
@@ -30,10 +29,10 @@ public static class CredsProvider
     {
         if (env.GetEnvironmentVariable("REGISTRY_AUTH_FILE") is { Length: > 0 } configFile)
         {
-            return new[] { configFile };
+            return [configFile];
         }
 
-        List<string> paths = new();
+        List<string> paths = [];
 
         if (env.GetEnvironmentVariable("XDG_RUNTIME_DIR") is { Length: > 0 } xdgRuntimeDir)
         {
@@ -54,7 +53,7 @@ public static class CredsProvider
         }
         paths.Add(Path.Combine(dockerConfigDir, "config.json"));
 
-        return paths.ToArray();
+        return [.. paths];
     }
 
     private static async Task<ICredStore> GetCredStoreAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
@@ -79,23 +78,17 @@ public static class CredsProvider
                 credHelpersElement.TryGetProperty(registry, out JsonElement credHelperElement))
             {
                 string? credHelperName = credHelperElement.GetString();
-                if (credHelperName is null)
-                {
-                    throw new JsonException($"Name of the credHelper for host '{registry}' was not set in Docker config {configFilePath}.");
-                }
-
-                return new NativeStore(credHelperName, processService, fileSystem, environment);
+                return credHelperName is null
+                    ? throw new JsonException($"Name of the credHelper for host '{registry}' was not set in Docker config {configFilePath}.")
+                    : (ICredStore)new NativeStore(credHelperName, processService, fileSystem, environment);
             }
 
             if (configDoc.RootElement.TryGetProperty("credsStore", out JsonElement credsStoreElement))
             {
                 string? credHelperName = credsStoreElement.GetString();
-                if (credHelperName is null)
-                {
-                    throw new JsonException($"Name of the credsStore was not set in Docker config {configFilePath}.");
-                }
-
-                return new NativeStore(credHelperName, processService, fileSystem, environment);
+                return credHelperName is null
+                    ? throw new JsonException($"Name of the credsStore was not set in Docker config {configFilePath}.")
+                    : (ICredStore)new NativeStore(credHelperName, processService, fileSystem, environment);
             }
 
             if (configDoc.RootElement.TryGetProperty("auths", out JsonElement authsElement))

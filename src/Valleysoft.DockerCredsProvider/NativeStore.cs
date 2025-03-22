@@ -9,10 +9,10 @@ namespace Valleysoft.DockerCredsProvider;
  
 internal class NativeStore : ICredStore
 {
-    private readonly string credHelperName;
-    private readonly IProcessService processService;
-    private readonly IFileSystem fileSystem;
-    private readonly IEnvironment environment;
+    private readonly string _credHelperName;
+    private readonly IProcessService _processService;
+    private readonly IFileSystem _fileSystem;
+    private readonly IEnvironment _environment;
 
     // A username of <token> indicates the secret is an identity token
     // See https://docs.docker.com/engine/reference/commandline/login/#credential-helper-protocol
@@ -20,10 +20,10 @@ internal class NativeStore : ICredStore
 
     public NativeStore(string credHelperName, IProcessService processService, IFileSystem fileSystem, IEnvironment environment)
     {
-        this.credHelperName = credHelperName;
-        this.processService = processService;
-        this.fileSystem = fileSystem;
-        this.environment = environment;
+        _credHelperName = credHelperName;
+        _processService = processService;
+        _fileSystem = fileSystem;
+        _environment = environment;
     }
 
     public async Task<DockerCredentials> GetCredentialsAsync(string registry)
@@ -69,21 +69,23 @@ internal class NativeStore : ICredStore
     private string? CheckForCandidateOnPath(List<string> candidates, string path) =>
         candidates
             .Select(candidate => Path.Combine(path, candidate))
-            .FirstOrDefault(absoluteCandidatePath => fileSystem.FileExists(absoluteCandidatePath));
+            .FirstOrDefault(absoluteCandidatePath => _fileSystem.FileExists(absoluteCandidatePath));
 
-    private string? ProbePathForNames(List<string> commandNameCandidates) {
-        if (this.environment.GetEnvironmentVariable("PATH") is string path  && path is not null) {
+    private string? ProbePathForNames(List<string> commandNameCandidates)
+    {
+        if (_environment.GetEnvironmentVariable("PATH") is string path  && path is not null) {
             return path
                 .Split(Path.PathSeparator)
-                .Select(pathDir => this.CheckForCandidateOnPath(commandNameCandidates, pathDir))
+                .Select(pathDir => CheckForCandidateOnPath(commandNameCandidates, pathDir))
                 .FirstOrDefault(candidate => candidate is not null);
         } else {
             return null;
         }
     }
 
-    private List<string> ExtendViaPathExt(string commandName) {
-        if (environment.GetEnvironmentVariable("PATHEXT") is string pathext && pathext is not null) {
+    private List<string> ExtendViaPathExt(string commandName)
+    {
+        if (_environment.GetEnvironmentVariable("PATHEXT") is string pathext && pathext is not null) {
             var executableExtensions = pathext.Split(';');
             // order is important here - the raw name should come first
             var variations = new List<string>(1 + executableExtensions.Length){
@@ -105,15 +107,12 @@ internal class NativeStore : ICredStore
         }
     }
 
-    public string? LocateExecutable(string executableName) => this.ProbePathForNames(this.CommandNameCandidates(executableName));
+    public string? LocateExecutable(string executableName) => ProbePathForNames(CommandNameCandidates(executableName));
 
     private string ExecuteCredHelper(string command, string? input)
     {   
-        var helperName = $"docker-credential-{this.credHelperName}";
-        var commandPath = LocateExecutable(helperName);
-        if (commandPath is null) {
-            throw new InvalidOperationException($"Unable to locate {helperName} on the system PATH. Be sure that the directory containing {helperName} is on your PATH.");
-        }
+        var helperName = $"docker-credential-{_credHelperName}";
+        var commandPath = LocateExecutable(helperName) ?? throw new InvalidOperationException($"Unable to locate {helperName} on the system PATH. Be sure that the directory containing {helperName} is on your PATH.");
         ProcessStartInfo startInfo = new(commandPath, command)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
@@ -130,7 +129,7 @@ internal class NativeStore : ICredStore
         int exitCode;
         try
         {
-            exitCode = processService.Run(startInfo, input, GetDataReceivedHandler(stdOutput), GetDataReceivedHandler(stdError));
+            exitCode = _processService.Run(startInfo, input, GetDataReceivedHandler(stdOutput), GetDataReceivedHandler(stdError));
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 2)
         {
