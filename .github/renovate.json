@@ -3,5 +3,6 @@
   "extends": [
     "config:best-practices"
   ],
-  "mode": "full"
+  "mode": "full",
+  "dependencyDashboardApproval": false
 }
