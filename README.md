@@ -1,13 +1,41 @@
 # Docker Creds Provider
 
-This .NET library provides a wrapper around Docker's credential configuration. Credentials for a Docker registry are [stored](https://docs.docker.com/engine/reference/commandline/login/#credentials-store) either in the operating system's native credential store or within Docker's configuration file. Docker Creds Provider determines which method is used for storing the credentials and returns the credentials for the requested registry.
+[![NuGet](https://img.shields.io/nuget/v/Valleysoft.DockerCredsProvider.svg)](https://www.nuget.org/packages/Valleysoft.DockerCredsProvider/)
+[![CI](https://github.com/mthalman/docker-creds-provider/actions/workflows/ci.yml/badge.svg)](https://github.com/mthalman/docker-creds-provider/actions/workflows/ci.yml)
 
-## Usage
+Docker Creds Provider is a .NET library for retrieving registry credentials
+from Docker-compatible configuration.
 
-```csharp
-DockerCredentials dockerHubCreds = await CredsProvider.GetCredentialsAsync("https://index.docker.io/v1/");
+## Install the package
 
-DockerCredentials privateRepoCreds = await CredsProvider.GetCredentialsAsync("contoso.azurecr.io");
+Install
+[Valleysoft.DockerCredsProvider](https://www.nuget.org/packages/Valleysoft.DockerCredsProvider/)
+from NuGet:
+
+```console
+dotnet add package Valleysoft.DockerCredsProvider
 ```
 
-The library is available as a NuGet package: [Valleysoft.DockerCredsProvider](https://www.nuget.org/packages/Valleysoft.DockerCredsProvider/).
+## Retrieve credentials
+
+Pass a registry name or URL to `CredsProvider.GetCredentialsAsync`:
+
+```csharp
+using Valleysoft.DockerCredsProvider;
+
+DockerCredentials credentials =
+    await CredsProvider.GetCredentialsAsync("contoso.azurecr.io");
+```
+
+The returned `DockerCredentials` object provides the username and either a
+password or identity token. The library follows
+[Docker's credential configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
+to locate the credentials.
+
+## Contribute
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the local build and test workflow.
+
+## License
+
+Docker Creds Provider is licensed under the [MIT License](LICENSE).
