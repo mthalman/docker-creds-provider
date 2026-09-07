@@ -2,12 +2,37 @@ using System.Text.Json;
 
 namespace Valleysoft.DockerCredsProvider;
 
+/// <summary>
+/// Resolves registry credentials from Docker-compatible configuration files.
+/// </summary>
 public static class CredsProvider
 {
     private static readonly IEnvironment _defaultEnvironment = new EnvironmentWrapper();
     private static readonly IProcessService _defaultProcessService = new ProcessService();
     private static readonly IFileSystem _defaultFileSystem = new FileSystem();
 
+    /// <summary>
+    /// Gets the credentials configured for a registry.
+    /// </summary>
+    /// <param name="registry">The registry hostname or URL to resolve.</param>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result
+    /// contains the configured username and credential.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="registry"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">
+    /// No Docker-compatible configuration file exists in a configured location.
+    /// </exception>
+    /// <exception cref="CredsNotFoundException">
+    /// Credentials for <paramref name="registry"/> could not be resolved from
+    /// the configuration or its credential helper.
+    /// </exception>
+    /// <exception cref="JsonException">
+    /// A configuration file contains invalid JSON or an invalid credential
+    /// helper setting.
+    /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
         GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment);
 

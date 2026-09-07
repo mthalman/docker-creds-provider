@@ -24,6 +24,14 @@ From the repository root, run the same commands used by CI (CI sets `src` as the
 
 A successful test run reports no failed tests.
 
+To create the same package artifacts validated by CI, continue with:
+
+    dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
+
+Packing validates the public API against the latest stable compatibility
+baseline. The `package-output` directory will contain both a `.nupkg` and its
+matching `.snupkg` symbol package.
+
 ## Submit a pull request
 
 Before opening a pull request:

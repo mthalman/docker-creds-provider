@@ -44,3 +44,42 @@ jobs:
         with:
           name: test-results-${{ matrix.os }}
           path: src/test-results/*
+
+  package:
+    name: Pack and validate
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET Core SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      - name: Pack and validate
+        run: dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
+
+      - name: Require package artifacts
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem package-output -Filter *.nupkg)
+          $symbols = @(Get-ChildItem package-output -Filter *.snupkg)
+          if ($packages.Count -ne 1 -or $symbols.Count -ne 1) {
+            throw "Expected one .nupkg and one .snupkg; found $($packages.Count) and $($symbols.Count)."
+          }
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages
+          path: |
+            src/package-output/*.nupkg
+            src/package-output/*.snupkg
