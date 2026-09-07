@@ -22,9 +22,11 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
     <PackageReference Include="System.Text.Json" Version="10.0.11" />
   </ItemGroup>
 
