@@ -26,12 +26,20 @@ public static class CredsProvider
     /// No Docker-compatible configuration file exists in a configured location.
     /// </exception>
     /// <exception cref="CredsNotFoundException">
-    /// Credentials for <paramref name="registry"/> could not be resolved from
-    /// the configuration or its credential helper.
+    /// No matching credentials are configured for <paramref name="registry"/>,
+    /// or its credential helper reports a failure.
     /// </exception>
     /// <exception cref="JsonException">
-    /// A configuration file contains invalid JSON or an invalid credential
-    /// helper setting.
+    /// A configuration file contains invalid JSON or is missing a required
+    /// credential value.
+    /// </exception>
+    /// <exception cref="FormatException">
+    /// An inline credential value is not valid Base64.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A configuration value has an unexpected JSON type, or a native
+    /// credential helper cannot be located, executed, or returns an invalid
+    /// response.
     /// </exception>
     /// <exception cref="TimeoutException">
     /// A native credential helper does not complete within its timeout.
@@ -57,12 +65,20 @@ public static class CredsProvider
     /// No Docker-compatible configuration file exists in a configured location.
     /// </exception>
     /// <exception cref="CredsNotFoundException">
-    /// Credentials for <paramref name="registry"/> could not be resolved from
-    /// the configuration or its credential helper.
+    /// No matching credentials are configured for <paramref name="registry"/>,
+    /// or its credential helper reports a failure.
     /// </exception>
     /// <exception cref="JsonException">
-    /// A configuration file contains invalid JSON or an invalid credential
-    /// helper setting.
+    /// A configuration file contains invalid JSON or is missing a required
+    /// credential value.
+    /// </exception>
+    /// <exception cref="FormatException">
+    /// An inline credential value is not valid Base64.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A configuration value has an unexpected JSON type, or a native
+    /// credential helper cannot be located, executed, or returns an invalid
+    /// response.
     /// </exception>
     /// <exception cref="OperationCanceledException">
     /// <paramref name="cancellationToken"/> is canceled.
