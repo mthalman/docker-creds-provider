@@ -24,7 +24,7 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>2.2.4</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>2.3.0</PackageValidationBaselineVersion>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PackageReadmeFile>README.md</PackageReadmeFile>

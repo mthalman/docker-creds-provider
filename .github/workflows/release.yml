@@ -52,4 +52,3 @@ jobs:
             throw "Expected package and symbol artifacts for version $version."
           }
           dotnet nuget push $packagePath -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json
-          dotnet nuget push $symbolsPath -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json

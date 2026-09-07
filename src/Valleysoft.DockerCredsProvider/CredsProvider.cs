@@ -33,9 +33,43 @@ public static class CredsProvider
     /// A configuration file contains invalid JSON or an invalid credential
     /// helper setting.
     /// </exception>
+    /// <exception cref="TimeoutException">
+    /// A native credential helper does not complete within its timeout.
+    /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
         GetCredentialsAsync(registry, CancellationToken.None);
 
+    /// <summary>
+    /// Gets the credentials configured for a registry.
+    /// </summary>
+    /// <param name="registry">The registry hostname or URL to resolve.</param>
+    /// <param name="cancellationToken">
+    /// A token that can cancel credential retrieval.
+    /// </param>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result
+    /// contains the configured username and credential.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="registry"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">
+    /// No Docker-compatible configuration file exists in a configured location.
+    /// </exception>
+    /// <exception cref="CredsNotFoundException">
+    /// Credentials for <paramref name="registry"/> could not be resolved from
+    /// the configuration or its credential helper.
+    /// </exception>
+    /// <exception cref="JsonException">
+    /// A configuration file contains invalid JSON or an invalid credential
+    /// helper setting.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> is canceled.
+    /// </exception>
+    /// <exception cref="TimeoutException">
+    /// A native credential helper does not complete within its timeout.
+    /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken) =>
         GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment, cancellationToken);
 
