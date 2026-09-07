@@ -15,23 +15,12 @@ configuration files and credential helper processes.
 
 ## Build and test locally
 
-From the repository root, restore dependencies:
+From the repository root, run the same commands used by CI (CI sets `src` as the working directory):
 
-```console
-dotnet restore src/Valleysoft.DockerCredsProvider.sln
-```
-
-Build the solution in the same configuration used by CI:
-
-```console
-dotnet build src/Valleysoft.DockerCredsProvider.sln --configuration Release --no-restore
-```
-
-Run the test suite:
-
-```console
-dotnet test src/Valleysoft.DockerCredsProvider.sln --configuration Release --no-restore
-```
+    cd src
+    dotnet restore
+    dotnet build -c Release --no-restore
+    dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
 
 A successful test run reports no failed tests.
 
