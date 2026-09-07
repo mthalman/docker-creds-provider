@@ -1,11 +1,9 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      packageVersion:
-        description: 'Package version'
-        required: true
+  push:
+    tags:
+      - 'v*'
 
 defaults:
   run:
@@ -17,6 +15,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET Core SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
@@ -38,9 +38,10 @@ jobs:
           path: src/test-results/*
 
       - name: Pack
-        env:
-          PACKAGE_VERSION: ${{ github.event.inputs.packageVersion }}
-        run: dotnet pack -c Release -p:Version=$PACKAGE_VERSION Valleysoft.DockerCredsProvider
-      
+        run: dotnet pack -c Release --no-build Valleysoft.DockerCredsProvider
+
       - name: Publish Package
-        run: dotnet nuget push "Valleysoft.DockerCredsProvider/bin/Release/*.nupkg" -k ${{secrets.NUGET_ORG_API_KEY}} -s https://nuget.org
+        run: |
+          package_path="Valleysoft.DockerCredsProvider/bin/Release/Valleysoft.DockerCredsProvider.${GITHUB_REF_NAME#v}.nupkg"
+          test -f "$package_path"
+          dotnet nuget push "$package_path" -k ${{secrets.NUGET_ORG_API_KEY}} -s https://nuget.org
