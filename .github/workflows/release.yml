@@ -51,5 +51,5 @@ jobs:
           if (-not (Test-Path $packagePath) -or -not (Test-Path $symbolsPath)) {
             throw "Expected package and symbol artifacts for version $version."
           }
-          dotnet nuget push $packagePath --no-symbols -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json
-          dotnet nuget push $symbolsPath -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json
+          # NuGet automatically publishes the matching colocated .snupkg after the primary package.
+          dotnet nuget push $packagePath -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json
