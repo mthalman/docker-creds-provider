@@ -51,31 +51,35 @@ public static class MockExtensions {
 
     internal static Mock<IProcessService> StubHelperSuccess(this Mock<IProcessService> mock, string helperShortName, string helperCommand, string output) {
         var fullName = $"docker-credential-{helperShortName}";
-        mock.Setup(o => o.Run(
+        mock.Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(fullName)),
                 It.IsIn(helperCommand),
                 It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>())
-            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived) =>
+                It.IsAny<Action<string?>>(),
+                It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>())
+            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived, TimeSpan timeout, CancellationToken cancellationToken) =>
             {
                 outputDataReceived(output);
             })
-            .Returns(0);
+            .ReturnsAsync(0);
         return mock;
     }
 
     internal static Mock<IProcessService> StubHelperError(this Mock<IProcessService> mock, string helperShortName, string helperCommand, string errorOutput) {
         var fullName = $"docker-credential-{helperShortName}";
-        mock.Setup(o => o.Run(
+        mock.Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(fullName)),
                 helperCommand,
                 It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>())
-            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived) =>
+                It.IsAny<Action<string?>>(),
+                It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>())
+            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived, TimeSpan timeout, CancellationToken cancellationToken) =>
             {
                 errorDataReceived(errorOutput);
             })
-            .Returns(1);
+            .ReturnsAsync(1);
         return mock;
     }
 

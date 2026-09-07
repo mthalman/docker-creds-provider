@@ -119,11 +119,13 @@ public class CredsProviderTests
 
         Mock<IProcessService> processServiceMock = new();
         processServiceMock
-            .Setup(o => o.Run(
+            .Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith($"docker-credential-{credsStore}")),
                 "test",
                 It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>()))
+                It.IsAny<Action<string?>>(),
+                It.IsAny<TimeSpan>(),
+                It.IsAny<CancellationToken>()))
             .Throws(new Win32Exception(2));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, _defaultEnvironmentMock));
@@ -162,6 +164,110 @@ public class CredsProviderTests
 
         await Assert.ThrowsAsync<CredsNotFoundException>(
             () => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, envMock.Object));
+    }
+
+    [Fact]
+    public async Task NativeStore_CallerCancellationIsPropagated()
+    {
+        const string Registry = "test";
+        const string CredsStore = "desktop";
+        string dockerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".docker",
+            "config.json");
+        string pathRoot = "/a";
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, $"{{ \"credsStore\": \"{CredsStore}\" }}")
+            .WithFile(Path.Combine(pathRoot, $"docker-credential-{CredsStore}"));
+
+        Mock<IEnvironment> envMock = new();
+        envMock.WithSystemProfileFolder();
+        envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
+
+        using CancellationTokenSource cancellationSource = new();
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock
+            .Setup(o => o.RunAsync(
+                It.IsAny<ProcessStartInfo>(),
+                Registry,
+                It.IsAny<Action<string?>>(),
+                It.IsAny<Action<string?>>(),
+                Valleysoft.DockerCredsProvider.NativeStore.HelperTimeout,
+                cancellationSource.Token))
+            .Returns(async (
+                ProcessStartInfo _,
+                string? _,
+                Action<string?> _,
+                Action<string?> _,
+                TimeSpan _,
+                CancellationToken cancellationToken) =>
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                return 0;
+            });
+
+        Task<DockerCredentials> getCredentialsTask = CredsProvider.GetCredentialsAsync(
+            Registry,
+            fileSystemMock.Object,
+            processServiceMock.Object,
+            envMock.Object,
+            cancellationSource.Token);
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => getCredentialsTask);
+    }
+
+    [Fact]
+    public async Task NativeStore_HelperTimeoutIsPropagated()
+    {
+        const string Registry = "test";
+        const string CredsStore = "desktop";
+        string dockerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".docker",
+            "config.json");
+        string pathRoot = "/a";
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, $"{{ \"credsStore\": \"{CredsStore}\" }}")
+            .WithFile(Path.Combine(pathRoot, $"docker-credential-{CredsStore}"));
+
+        Mock<IEnvironment> envMock = new();
+        envMock.WithSystemProfileFolder();
+        envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
+
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock
+            .Setup(o => o.RunAsync(
+                It.IsAny<ProcessStartInfo>(),
+                Registry,
+                It.IsAny<Action<string?>>(),
+                It.IsAny<Action<string?>>(),
+                Valleysoft.DockerCredsProvider.NativeStore.HelperTimeout,
+                CancellationToken.None))
+            .ThrowsAsync(new TimeoutException());
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            CredsProvider.GetCredentialsAsync(
+                Registry,
+                fileSystemMock.Object,
+                processServiceMock.Object,
+                envMock.Object));
+    }
+
+    [Fact]
+    public async Task GetCredentialsAsync_CanceledBeforeLookup()
+    {
+        using CancellationTokenSource cancellationSource = new();
+        cancellationSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CredsProvider.GetCredentialsAsync("test", cancellationSource.Token));
     }
 
     [Fact]
