@@ -9,6 +9,8 @@ namespace Valleysoft.DockerCredsProvider;
  
 internal class NativeStore : ICredStore
 {
+    internal static readonly TimeSpan HelperTimeout = TimeSpan.FromSeconds(30);
+
     private readonly string _credHelperName;
     private readonly IProcessService _processService;
     private readonly IFileSystem _fileSystem;
@@ -26,13 +28,15 @@ internal class NativeStore : ICredStore
         _environment = environment;
     }
 
-    public async Task<DockerCredentials> GetCredentialsAsync(string registry)
+    public async Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken)
     {
         const string Username = "Username";
         const string Secret = "Secret";
-        string output = ExecuteCredHelper("get", registry);
+        string output = await ExecuteCredHelperAsync("get", registry, cancellationToken);
 
-        using JsonDocument configDoc = await JsonDocument.ParseAsync(new MemoryStream(Encoding.UTF8.GetBytes(output)));
+        using JsonDocument configDoc = await JsonDocument.ParseAsync(
+            new MemoryStream(Encoding.UTF8.GetBytes(output)),
+            cancellationToken: cancellationToken);
 
         string? username = null;
         if (configDoc.RootElement.TryGetProperty(Username, out JsonElement usernameElement))
@@ -109,7 +113,7 @@ internal class NativeStore : ICredStore
 
     public string? LocateExecutable(string executableName) => ProbePathForNames(CommandNameCandidates(executableName));
 
-    private string ExecuteCredHelper(string command, string? input)
+    private async Task<string> ExecuteCredHelperAsync(string command, string? input, CancellationToken cancellationToken)
     {   
         var helperName = $"docker-credential-{_credHelperName}";
         var commandPath = LocateExecutable(helperName) ?? throw new InvalidOperationException($"Unable to locate {helperName} on the system PATH. Be sure that the directory containing {helperName} is on your PATH.");
@@ -129,7 +133,13 @@ internal class NativeStore : ICredStore
         int exitCode;
         try
         {
-            exitCode = _processService.Run(startInfo, input, GetDataReceivedHandler(stdOutput), GetDataReceivedHandler(stdError));
+            exitCode = await _processService.RunAsync(
+                startInfo,
+                input,
+                GetDataReceivedHandler(stdOutput),
+                GetDataReceivedHandler(stdError),
+                HelperTimeout,
+                cancellationToken);
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 2)
         {

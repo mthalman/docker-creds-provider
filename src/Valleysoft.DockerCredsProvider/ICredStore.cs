@@ -2,5 +2,5 @@
 
 internal interface ICredStore
 {
-    Task<DockerCredentials> GetCredentialsAsync(string registry);
+    Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken);
 }
