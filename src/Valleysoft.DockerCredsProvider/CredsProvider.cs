@@ -34,17 +34,27 @@ public static class CredsProvider
     /// helper setting.
     /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
-        GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment);
+        GetCredentialsAsync(registry, CancellationToken.None);
 
-    internal static async Task<DockerCredentials> GetCredentialsAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
+    public static Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken) =>
+        GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment, cancellationToken);
+
+    internal static async Task<DockerCredentials> GetCredentialsAsync(
+        string registry,
+        IFileSystem fileSystem,
+        IProcessService processService,
+        IEnvironment environment,
+        CancellationToken cancellationToken = default)
     {
         if (registry is null)
         {
             throw new ArgumentNullException(nameof(registry));
         }
 
-        ICredStore credStore = await GetCredStoreAsync(registry, fileSystem, processService, environment);
-        return await credStore.GetCredentialsAsync(registry);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ICredStore credStore = await GetCredStoreAsync(registry, fileSystem, processService, environment, cancellationToken);
+        return await credStore.GetCredentialsAsync(registry, cancellationToken);
     }
 
     /// <summary>
@@ -81,7 +91,12 @@ public static class CredsProvider
         return [.. paths];
     }
 
-    private static async Task<ICredStore> GetCredStoreAsync(string registry, IFileSystem fileSystem, IProcessService processService, IEnvironment environment)
+    private static async Task<ICredStore> GetCredStoreAsync(
+        string registry,
+        IFileSystem fileSystem,
+        IProcessService processService,
+        IEnvironment environment,
+        CancellationToken cancellationToken)
     {
         string[] configFilePaths = GetConfigFilePaths(environment);
         string hostname = ConvertToHostname(registry);
@@ -89,6 +104,8 @@ public static class CredsProvider
         bool configFileFound = false;
         foreach (var configFilePath in configFilePaths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!fileSystem.FileExists(configFilePath))
             {
                 continue;
@@ -97,7 +114,7 @@ public static class CredsProvider
             configFileFound = true;
 
             using Stream openStream = fileSystem.FileOpenRead(configFilePath);
-            using JsonDocument configDoc = await JsonDocument.ParseAsync(openStream);
+            using JsonDocument configDoc = await JsonDocument.ParseAsync(openStream, cancellationToken: cancellationToken);
 
             if (configDoc.RootElement.TryGetProperty("credHelpers", out JsonElement credHelpersElement) &&
                 credHelpersElement.TryGetProperty(registry, out JsonElement credHelperElement))

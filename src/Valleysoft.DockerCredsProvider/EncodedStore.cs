@@ -73,5 +73,9 @@ internal class EncodedStore : ICredStore
         _creds = new DockerCredentials(username, password, identityToken);
     }
 
-    public Task<DockerCredentials> GetCredentialsAsync(string registry) => Task.FromResult(_creds);
+    public Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_creds);
+    }
 }

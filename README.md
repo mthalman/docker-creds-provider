@@ -27,10 +27,20 @@ DockerCredentials credentials =
     await CredsProvider.GetCredentialsAsync("contoso.azurecr.io");
 ```
 
+Pass a cancellation token to stop credential retrieval when the calling
+operation is canceled:
+
+```csharp
+DockerCredentials credentials =
+    await CredsProvider.GetCredentialsAsync("contoso.azurecr.io", cancellationToken);
+```
+
 The returned `DockerCredentials` object provides the username and either a
 password or identity token. The library follows
 [Docker's credential configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
-to locate the credentials.
+to locate the credentials. Native credential helpers have a 30-second timeout;
+an expired timeout throws `TimeoutException`, while caller cancellation throws
+`OperationCanceledException`.
 
 ## Contribute
 
