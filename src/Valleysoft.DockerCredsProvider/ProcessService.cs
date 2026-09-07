@@ -50,6 +50,10 @@ internal class ProcessService : IProcessService
         TaskCompletionSource<int> exitCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<bool> outputCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource<bool> errorCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> cancellationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration cancellationRegistration = cancellationToken.Register(
+            () => cancellationCompletion.TrySetResult(true));
+        using CancellationTokenSource timeoutCancellationSource = new();
 
         process.Exited += (_, _) => exitCompletion.TrySetResult(process.ExitCode);
         process.OutputDataReceived += (_, args) =>
@@ -76,8 +80,7 @@ internal class ProcessService : IProcessService
             started = true;
             _processStarted?.Invoke(process);
 
-            Task timeoutTask = Task.Delay(timeout);
-            Task cancellationTask = Task.Delay(Timeout.Infinite, cancellationToken);
+            Task timeoutTask = Task.Delay(timeout, timeoutCancellationSource.Token);
 
             if (process.StartInfo.RedirectStandardError)
             {
@@ -104,12 +107,19 @@ internal class ProcessService : IProcessService
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
 
-            Task completedTask = await Task.WhenAny(exitCompletion.Task, inputTask, timeoutTask, cancellationTask);
+            Task completedTask = await Task.WhenAny(
+                exitCompletion.Task,
+                inputTask,
+                timeoutTask,
+                cancellationCompletion.Task);
 
             if (completedTask == inputTask)
             {
                 await inputTask;
-                completedTask = await Task.WhenAny(exitCompletion.Task, timeoutTask, cancellationTask);
+                completedTask = await Task.WhenAny(
+                    exitCompletion.Task,
+                    timeoutTask,
+                    cancellationCompletion.Task);
             }
 
             if (completedTask == exitCompletion.Task || exitCompletion.Task.IsCompleted)
@@ -117,7 +127,7 @@ internal class ProcessService : IProcessService
                 return await CompleteAsync(inputTask, exitCompletion.Task, outputCompletion.Task, errorCompletion.Task);
             }
 
-            if (completedTask == cancellationTask || cancellationToken.IsCancellationRequested)
+            if (completedTask == cancellationCompletion.Task || cancellationToken.IsCancellationRequested)
             {
                 Terminate(process);
                 await exitCompletion.Task;
@@ -142,6 +152,10 @@ internal class ProcessService : IProcessService
             }
 
             throw;
+        }
+        finally
+        {
+            timeoutCancellationSource.Cancel();
         }
     }
 
