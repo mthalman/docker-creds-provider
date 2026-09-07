@@ -44,4 +44,4 @@ jobs:
         run: |
           package_path="Valleysoft.DockerCredsProvider/bin/Release/Valleysoft.DockerCredsProvider.${GITHUB_REF_NAME#v}.nupkg"
           test -f "$package_path"
-          dotnet nuget push "$package_path" -k ${{secrets.NUGET_ORG_API_KEY}} -s https://nuget.org
+          dotnet nuget push "$package_path" -k "${{secrets.NUGET_ORG_API_KEY}}" -s https://nuget.org
