@@ -42,7 +42,7 @@ jobs:
       - name: Pack
         run: dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
 
-      - name: Publish Package
+      - name: Publish package and symbols
         shell: pwsh
         run: |
           $version = '${{ github.ref_name }}'.Substring(1)
@@ -51,4 +51,5 @@ jobs:
           if (-not (Test-Path $packagePath) -or -not (Test-Path $symbolsPath)) {
             throw "Expected package and symbol artifacts for version $version."
           }
+          # NuGet automatically publishes the matching colocated .snupkg after the primary package.
           dotnet nuget push $packagePath -k '${{ secrets.NUGET_ORG_API_KEY }}' -s https://api.nuget.org/v3/index.json
