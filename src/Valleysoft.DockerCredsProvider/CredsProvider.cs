@@ -2,15 +2,90 @@ using System.Text.Json;
 
 namespace Valleysoft.DockerCredsProvider;
 
+/// <summary>
+/// Resolves registry credentials from Docker-compatible configuration files.
+/// </summary>
 public static class CredsProvider
 {
     private static readonly IEnvironment _defaultEnvironment = new EnvironmentWrapper();
     private static readonly IProcessService _defaultProcessService = new ProcessService();
     private static readonly IFileSystem _defaultFileSystem = new FileSystem();
 
+    /// <summary>
+    /// Gets the credentials configured for a registry.
+    /// </summary>
+    /// <param name="registry">The registry hostname or URL to resolve.</param>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result
+    /// contains the configured username and credential.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="registry"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">
+    /// No Docker-compatible configuration file exists in a configured location.
+    /// </exception>
+    /// <exception cref="CredsNotFoundException">
+    /// No matching credentials are configured for <paramref name="registry"/>,
+    /// or its credential helper reports a failure.
+    /// </exception>
+    /// <exception cref="JsonException">
+    /// A configuration file contains invalid JSON or is missing a required
+    /// credential value.
+    /// </exception>
+    /// <exception cref="FormatException">
+    /// An inline credential value is not valid Base64.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A configuration value has an unexpected JSON type, or a native
+    /// credential helper cannot be located, executed, or returns an invalid
+    /// response.
+    /// </exception>
+    /// <exception cref="TimeoutException">
+    /// A native credential helper does not complete within its timeout.
+    /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry) =>
         GetCredentialsAsync(registry, CancellationToken.None);
 
+    /// <summary>
+    /// Gets the credentials configured for a registry.
+    /// </summary>
+    /// <param name="registry">The registry hostname or URL to resolve.</param>
+    /// <param name="cancellationToken">
+    /// A token that can cancel credential retrieval.
+    /// </param>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result
+    /// contains the configured username and credential.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="registry"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">
+    /// No Docker-compatible configuration file exists in a configured location.
+    /// </exception>
+    /// <exception cref="CredsNotFoundException">
+    /// No matching credentials are configured for <paramref name="registry"/>,
+    /// or its credential helper reports a failure.
+    /// </exception>
+    /// <exception cref="JsonException">
+    /// A configuration file contains invalid JSON or is missing a required
+    /// credential value.
+    /// </exception>
+    /// <exception cref="FormatException">
+    /// An inline credential value is not valid Base64.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// A configuration value has an unexpected JSON type, or a native
+    /// credential helper cannot be located, executed, or returns an invalid
+    /// response.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> is canceled.
+    /// </exception>
+    /// <exception cref="TimeoutException">
+    /// A native credential helper does not complete within its timeout.
+    /// </exception>
     public static Task<DockerCredentials> GetCredentialsAsync(string registry, CancellationToken cancellationToken) =>
         GetCredentialsAsync(registry, _defaultFileSystem, _defaultProcessService, _defaultEnvironment, cancellationToken);
 
