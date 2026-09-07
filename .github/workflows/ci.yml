@@ -67,13 +67,31 @@ jobs:
       - name: Pack and validate
         run: dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
 
-      - name: Require package artifacts
+      - name: Validate package artifacts
         shell: pwsh
         run: |
           $packages = @(Get-ChildItem package-output -Filter *.nupkg)
           $symbols = @(Get-ChildItem package-output -Filter *.snupkg)
           if ($packages.Count -ne 1 -or $symbols.Count -ne 1) {
             throw "Expected one .nupkg and one .snupkg; found $($packages.Count) and $($symbols.Count)."
+          }
+
+          $requiredEntries = @("README.md")
+          foreach ($framework in @("netstandard2.0", "net8.0", "net9.0")) {
+            $requiredEntries += "lib/$framework/Valleysoft.DockerCredsProvider.dll"
+            $requiredEntries += "lib/$framework/Valleysoft.DockerCredsProvider.xml"
+          }
+
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+          try {
+            $entries = @($archive.Entries.FullName)
+            $missingEntries = @($requiredEntries | Where-Object { $_ -notin $entries })
+            if ($missingEntries.Count -gt 0) {
+              throw "Package is missing required entries: $($missingEntries -join ', ')"
+            }
+          }
+          finally {
+            $archive.Dispose()
           }
 
       - name: Upload package artifacts
