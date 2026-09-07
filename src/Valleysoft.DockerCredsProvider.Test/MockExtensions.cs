@@ -70,7 +70,7 @@ public static class MockExtensions {
         this Mock<IProcessService> mock,
         string helperShortName,
         string helperCommand,
-        string errorOutput,
+        string? errorOutput,
         string? output = null) {
         var fullName = $"docker-credential-{helperShortName}";
         mock.Setup(o => o.RunAsync(
@@ -87,7 +87,10 @@ public static class MockExtensions {
                     outputDataReceived(output);
                 }
 
-                errorDataReceived(errorOutput);
+                if (errorOutput is not null)
+                {
+                    errorDataReceived(errorOutput);
+                }
             })
             .ReturnsAsync(1);
         return mock;

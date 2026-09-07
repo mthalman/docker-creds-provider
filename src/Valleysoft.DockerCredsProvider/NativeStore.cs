@@ -34,12 +34,13 @@ internal class NativeStore : ICredStore
         const string Secret = "Secret";
         string output = await ExecuteCredHelperAsync("get", registry, cancellationToken);
         byte[] outputBytes = Encoding.UTF8.GetBytes(output);
+        using MemoryStream outputStream = new(outputBytes);
 
         JsonDocument configDoc;
         try
         {
             configDoc = await JsonDocument.ParseAsync(
-                new MemoryStream(outputBytes),
+                outputStream,
                 cancellationToken: cancellationToken);
         }
         catch (JsonException e)
@@ -52,7 +53,7 @@ internal class NativeStore : ICredStore
 
             throw new InvalidOperationException(
                 $"Credential helper '{GetHelperName()}' returned malformed JSON " +
-                $"({outputBytes.Length} bytes; line {e.LineNumber?.ToString() ?? "unknown"}, " +
+                $"({output.Length} captured characters; line {e.LineNumber?.ToString() ?? "unknown"}, " +
                 $"byte position {e.BytePositionInLine?.ToString() ?? "unknown"}).",
                 sanitizedException);
         }
@@ -63,11 +64,12 @@ internal class NativeStore : ICredStore
             {
                 throw new InvalidOperationException(
                     $"Credential helper '{GetHelperName()}' returned an invalid response whose JSON root " +
-                    $"was {configDoc.RootElement.ValueKind} instead of an object ({outputBytes.Length} bytes).");
+                    $"was {configDoc.RootElement.ValueKind} instead of an object " +
+                    $"({output.Length} captured characters).");
             }
 
-            string username = GetRequiredString(configDoc.RootElement, Username, outputBytes.Length);
-            string? password = GetRequiredString(configDoc.RootElement, Secret, outputBytes.Length);
+            string username = GetRequiredString(configDoc.RootElement, Username, output.Length);
+            string? password = GetRequiredString(configDoc.RootElement, Secret, output.Length);
 
             string? identityToken = null;
             if (username == TokenSpecifier)
@@ -91,7 +93,7 @@ internal class NativeStore : ICredStore
 
         throw new InvalidOperationException(
             $"Credential helper '{GetHelperName()}' returned an invalid response without a " +
-            $"non-null string '{propertyName}' field ({outputLength} bytes).");
+            $"non-null string '{propertyName}' field ({outputLength} captured characters).");
     }
 
     private string GetHelperName() => $"docker-credential-{_credHelperName}";
@@ -174,10 +176,13 @@ internal class NativeStore : ICredStore
 
         if (exitCode != 0)
         {
+            string output = stdOutput.ToString();
+            string error = stdError.ToString();
+
             throw new CredsNotFoundException(
                 $"Credential helper '{helperName}' exited with code {exitCode} " +
-                $"(standard output length: {Encoding.UTF8.GetByteCount(stdOutput.ToString())} bytes; " +
-                $"standard error length: {Encoding.UTF8.GetByteCount(stdError.ToString())} bytes). " +
+                $"(captured standard output length: {output.Length} characters; " +
+                $"captured standard error length: {error.Length} characters). " +
                 "Helper output was omitted because it may contain credentials.");
         }
 

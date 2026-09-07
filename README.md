@@ -40,12 +40,7 @@ password or identity token. The library follows
 [Docker's credential configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
 to locate the credentials. Native credential helpers have a 30-second timeout;
 an expired timeout throws `TimeoutException`, while caller cancellation throws
-`OperationCanceledException`. Invalid helper responses throw
-`InvalidOperationException`, and a nonzero helper exit throws
-`CredsNotFoundException`. These exceptions identify the helper and failure
-category but intentionally omit helper output because it may contain
-credentials. For malformed JSON, a sanitized `JsonException` with parser
-location details is available as the `InvalidOperationException.InnerException`.
+`OperationCanceledException`.
 
 ## Contribute
 

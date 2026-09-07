@@ -189,7 +189,7 @@ public class CredsProviderTests
         Assert.Contains("docker-credential-desktop", exception.Message);
         Assert.Contains($"'{missingField}'", exception.Message);
         Assert.Contains(
-            $"({Encoding.UTF8.GetByteCount(output + Environment.NewLine)} bytes)",
+            $"({(output + Environment.NewLine).Length} captured characters)",
             exception.Message);
         AssertExceptionChainDoesNotContain(exception, sensitiveValue);
     }
@@ -211,7 +211,7 @@ public class CredsProviderTests
         Assert.Contains("docker-credential-desktop", exception.Message);
         Assert.Contains("malformed JSON", exception.Message);
         Assert.Contains(
-            $"{Encoding.UTF8.GetByteCount(output + Environment.NewLine)} bytes",
+            $"{(output + Environment.NewLine).Length} captured characters",
             exception.Message);
         Assert.Contains("line", exception.Message);
         Assert.Contains("byte position", exception.Message);
@@ -236,7 +236,7 @@ public class CredsProviderTests
         Assert.Contains("invalid response", exception.Message);
         Assert.Contains($"was {rootKind} instead of an object", exception.Message);
         Assert.Contains(
-            $"({Encoding.UTF8.GetByteCount(output + Environment.NewLine)} bytes)",
+            $"({(output + Environment.NewLine).Length} captured characters)",
             exception.Message);
         AssertExceptionChainDoesNotContain(exception, sensitiveValue);
     }
@@ -251,7 +251,7 @@ public class CredsProviderTests
         processServiceMock.StubHelperError(
             "desktop",
             "test",
-            writeSecretToStandardError ? SensitiveValue : string.Empty,
+            writeSecretToStandardError ? SensitiveValue : null,
             writeSecretToStandardError ? null : SensitiveValue);
 
         CredsNotFoundException exception = await Assert.ThrowsAsync<CredsNotFoundException>(
@@ -259,6 +259,11 @@ public class CredsProviderTests
 
         Assert.Contains("docker-credential-desktop", exception.Message);
         Assert.Contains("code 1", exception.Message);
+        Assert.Contains(
+            writeSecretToStandardError
+                ? "captured standard output length: 0 characters"
+                : "captured standard error length: 0 characters",
+            exception.Message);
         Assert.Contains("Helper output was omitted", exception.Message);
         AssertExceptionChainDoesNotContain(exception, SensitiveValue);
     }
