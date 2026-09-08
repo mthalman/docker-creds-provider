@@ -33,42 +33,70 @@ internal class NativeStore : ICredStore
         const string Username = "Username";
         const string Secret = "Secret";
         string output = await ExecuteCredHelperAsync("get", registry, cancellationToken);
+        byte[] outputBytes = Encoding.UTF8.GetBytes(output);
+        using MemoryStream outputStream = new(outputBytes);
 
-        using JsonDocument configDoc = await JsonDocument.ParseAsync(
-            new MemoryStream(Encoding.UTF8.GetBytes(output)),
-            cancellationToken: cancellationToken);
-
-        string? username = null;
-        if (configDoc.RootElement.TryGetProperty(Username, out JsonElement usernameElement))
+        JsonDocument configDoc;
+        try
         {
-            username = usernameElement.GetString();
+            configDoc = await JsonDocument.ParseAsync(
+                outputStream,
+                cancellationToken: cancellationToken);
+        }
+        catch (JsonException e)
+        {
+            JsonException sanitizedException = new(
+                "Credential helper response could not be parsed as JSON.",
+                e.Path,
+                e.LineNumber,
+                e.BytePositionInLine);
+
+            throw new InvalidOperationException(
+                $"Credential helper '{GetHelperName()}' returned malformed JSON " +
+                $"({output.Length} captured characters; line {e.LineNumber?.ToString() ?? "unknown"}, " +
+                $"byte position {e.BytePositionInLine?.ToString() ?? "unknown"}).",
+                sanitizedException);
         }
 
-        string? password = null;
-        if (configDoc.RootElement.TryGetProperty(Secret, out JsonElement secretElement))
+        using (configDoc)
         {
-            password = secretElement.GetString();
-        }
+            if (configDoc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException(
+                    $"Credential helper '{GetHelperName()}' returned an invalid response whose JSON root " +
+                    $"was {configDoc.RootElement.ValueKind} instead of an object " +
+                    $"({output.Length} captured characters).");
+            }
 
-        if (username is null)
-        {
-            throw new InvalidOperationException($"Output of cred helper doesn't contain '{Username}': {output}");
-        }
+            string username = GetRequiredString(configDoc.RootElement, Username, output.Length);
+            string? password = GetRequiredString(configDoc.RootElement, Secret, output.Length);
 
-        if (password is null)
-        {
-            throw new InvalidOperationException($"Output of cred helper doesn't contain '{Secret}': {output}");
-        }
+            string? identityToken = null;
+            if (username == TokenSpecifier)
+            {
+                identityToken = password;
+                password = null;
+            }
 
-        string? identityToken = null;
-        if (username == TokenSpecifier)
-        {
-            identityToken = password;
-            password = null;
+            return new DockerCredentials(username, password, identityToken);
         }
-
-        return new DockerCredentials(username, password, identityToken);
     }
+
+    private string GetRequiredString(JsonElement rootElement, string propertyName, int outputLength)
+    {
+        if (rootElement.TryGetProperty(propertyName, out JsonElement element) &&
+            element.ValueKind == JsonValueKind.String &&
+            element.GetString() is string value)
+        {
+            return value;
+        }
+
+        throw new InvalidOperationException(
+            $"Credential helper '{GetHelperName()}' returned an invalid response without a " +
+            $"non-null string '{propertyName}' field ({outputLength} captured characters).");
+    }
+
+    private string GetHelperName() => $"docker-credential-{_credHelperName}";
 
     private string? CheckForCandidateOnPath(List<string> candidates, string path) =>
         candidates
@@ -115,7 +143,7 @@ internal class NativeStore : ICredStore
 
     private async Task<string> ExecuteCredHelperAsync(string command, string? input, CancellationToken cancellationToken)
     {   
-        var helperName = $"docker-credential-{_credHelperName}";
+        var helperName = GetHelperName();
         var commandPath = LocateExecutable(helperName) ?? throw new InvalidOperationException($"Unable to locate {helperName} on the system PATH. Be sure that the directory containing {helperName} is on your PATH.");
         ProcessStartInfo startInfo = new(commandPath, command)
         {
@@ -148,11 +176,14 @@ internal class NativeStore : ICredStore
 
         if (exitCode != 0)
         {
-            string err = stdError.Length > 0 ? stdError.ToString() : stdOutput.ToString();
+            string output = stdOutput.ToString();
+            string error = stdError.ToString();
 
             throw new CredsNotFoundException(
-                $"Failed to execute '{startInfo.FileName} {startInfo.Arguments}':" +
-                Environment.NewLine + err);
+                $"Credential helper '{helperName}' exited with code {exitCode} " +
+                $"(captured standard output length: {output.Length} characters; " +
+                $"captured standard error length: {error.Length} characters). " +
+                "Helper output was omitted because it may contain credentials.");
         }
 
         return stdOutput.ToString();

@@ -66,7 +66,12 @@ public static class MockExtensions {
         return mock;
     }
 
-    internal static Mock<IProcessService> StubHelperError(this Mock<IProcessService> mock, string helperShortName, string helperCommand, string errorOutput) {
+    internal static Mock<IProcessService> StubHelperError(
+        this Mock<IProcessService> mock,
+        string helperShortName,
+        string helperCommand,
+        string? errorOutput,
+        string? output = null) {
         var fullName = $"docker-credential-{helperShortName}";
         mock.Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(fullName)),
@@ -77,7 +82,15 @@ public static class MockExtensions {
                 It.IsAny<CancellationToken>())
             ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived, TimeSpan timeout, CancellationToken cancellationToken) =>
             {
-                errorDataReceived(errorOutput);
+                if (output is not null)
+                {
+                    outputDataReceived(output);
+                }
+
+                if (errorOutput is not null)
+                {
+                    errorDataReceived(errorOutput);
+                }
             })
             .ReturnsAsync(1);
         return mock;

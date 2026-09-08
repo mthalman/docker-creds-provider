@@ -166,6 +166,108 @@ public class CredsProviderTests
             () => CredsProvider.GetCredentialsAsync("test", fileSystemMock.Object, processServiceMock.Object, envMock.Object));
     }
 
+    [Theory]
+    [InlineData(
+        "Username",
+        "{ \"Secret\": \"missing-username-secret\" }",
+        "missing-username-secret")]
+    [InlineData(
+        "Secret",
+        "{ \"Username\": \"testuser\", \"IdentityToken\": \"missing-secret-token\" }",
+        "missing-secret-token")]
+    public async Task NativeStore_MissingFieldDoesNotExposeOutput(
+        string missingField,
+        string output,
+        string sensitiveValue)
+    {
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock.StubHelperSuccess("desktop", "test", output);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => GetNativeStoreCredentialsAsync(processServiceMock.Object));
+
+        Assert.Contains("docker-credential-desktop", exception.Message);
+        Assert.Contains($"'{missingField}'", exception.Message);
+        Assert.Contains(
+            $"({(output + Environment.NewLine).Length} captured characters)",
+            exception.Message);
+        AssertExceptionChainDoesNotContain(exception, sensitiveValue);
+    }
+
+    [Theory]
+    [InlineData(
+        "{ \"Username\": \"testuser\", \"Secret\": \"malformed-json-secret\"",
+        "malformed-json-secret")]
+    [InlineData("@", "@")]
+    public async Task NativeStore_MalformedJsonDoesNotExposeOutput(string output, string sensitiveValue)
+    {
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock.StubHelperSuccess("desktop", "test", output);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => GetNativeStoreCredentialsAsync(processServiceMock.Object));
+
+        Assert.IsAssignableFrom<JsonException>(exception.InnerException);
+        Assert.Contains("docker-credential-desktop", exception.Message);
+        Assert.Contains("malformed JSON", exception.Message);
+        Assert.Contains(
+            $"{(output + Environment.NewLine).Length} captured characters",
+            exception.Message);
+        Assert.Contains("line", exception.Message);
+        Assert.Contains("byte position", exception.Message);
+        AssertExceptionChainDoesNotContain(exception, sensitiveValue);
+    }
+
+    [Theory]
+    [InlineData("[\"array-root-secret\"]", "array-root-secret", "Array")]
+    [InlineData("\"scalar-root-secret\"", "scalar-root-secret", "String")]
+    public async Task NativeStore_NonObjectJsonDoesNotExposeOutput(
+        string output,
+        string sensitiveValue,
+        string rootKind)
+    {
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock.StubHelperSuccess("desktop", "test", output);
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => GetNativeStoreCredentialsAsync(processServiceMock.Object));
+
+        Assert.Contains("docker-credential-desktop", exception.Message);
+        Assert.Contains("invalid response", exception.Message);
+        Assert.Contains($"was {rootKind} instead of an object", exception.Message);
+        Assert.Contains(
+            $"({(output + Environment.NewLine).Length} captured characters)",
+            exception.Message);
+        AssertExceptionChainDoesNotContain(exception, sensitiveValue);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NativeStore_NonzeroExitDoesNotExposeOutput(bool writeSecretToStandardError)
+    {
+        const string SensitiveValue = "nonzero-exit-secret";
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock.StubHelperError(
+            "desktop",
+            "test",
+            writeSecretToStandardError ? SensitiveValue : null,
+            writeSecretToStandardError ? null : SensitiveValue);
+
+        CredsNotFoundException exception = await Assert.ThrowsAsync<CredsNotFoundException>(
+            () => GetNativeStoreCredentialsAsync(processServiceMock.Object));
+
+        Assert.Contains("docker-credential-desktop", exception.Message);
+        Assert.Contains("code 1", exception.Message);
+        Assert.Contains(
+            writeSecretToStandardError
+                ? "captured standard output length: 0 characters"
+                : "captured standard error length: 0 characters",
+            exception.Message);
+        Assert.Contains("Helper output was omitted", exception.Message);
+        AssertExceptionChainDoesNotContain(exception, SensitiveValue);
+    }
+
     [Fact]
     public async Task NativeStore_CallerCancellationIsPropagated()
     {
@@ -798,5 +900,40 @@ public class CredsProviderTests
 
         Assert.Equal(result.Username, username);
         Assert.Equal(result.Password, password);
+    }
+
+    private static Task<DockerCredentials> GetNativeStoreCredentialsAsync(IProcessService processService)
+    {
+        const string CredsStore = "desktop";
+        const string Registry = "test";
+        string dockerConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".docker",
+            "config.json");
+        string pathRoot = "/a";
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, $"{{ \"credsStore\": \"{CredsStore}\" }}")
+            .WithFile(Path.Combine(pathRoot, $"docker-credential-{CredsStore}"));
+
+        Mock<IEnvironment> envMock = new();
+        envMock.WithSystemProfileFolder();
+        envMock.Setup(o => o.GetEnvironmentVariable("PATH")).Returns(pathRoot);
+        envMock.Setup(o => o.GetEnvironmentVariable("PATHEXT")).Returns((string?)null);
+
+        return CredsProvider.GetCredentialsAsync(
+            Registry,
+            fileSystemMock.Object,
+            processService,
+            envMock.Object);
+    }
+
+    private static void AssertExceptionChainDoesNotContain(Exception exception, string sensitiveValue)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            Assert.DoesNotContain(sensitiveValue, current.Message);
+        }
     }
 }
