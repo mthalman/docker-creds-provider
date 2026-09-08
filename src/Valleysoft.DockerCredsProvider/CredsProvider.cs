@@ -22,6 +22,10 @@ public static class CredsProvider
     /// <exception cref="ArgumentNullException">
     /// <paramref name="registry"/> is <see langword="null"/>.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="registry"/> is empty, whitespace-only, or is not a
+    /// valid registry hostname or HTTP(S) URL.
+    /// </exception>
     /// <exception cref="FileNotFoundException">
     /// No Docker-compatible configuration file exists in a configured location.
     /// </exception>
@@ -61,6 +65,10 @@ public static class CredsProvider
     /// <exception cref="ArgumentNullException">
     /// <paramref name="registry"/> is <see langword="null"/>.
     /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="registry"/> is empty, whitespace-only, or is not a
+    /// valid registry hostname or HTTP(S) URL.
+    /// </exception>
     /// <exception cref="FileNotFoundException">
     /// No Docker-compatible configuration file exists in a configured location.
     /// </exception>
@@ -96,15 +104,18 @@ public static class CredsProvider
         IEnvironment environment,
         CancellationToken cancellationToken = default)
     {
-        if (registry is null)
-        {
-            throw new ArgumentNullException(nameof(registry));
-        }
+        RegistryReference registryReference = RegistryReference.Parse(registry);
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        ICredStore credStore = await GetCredStoreAsync(registry, fileSystem, processService, environment, cancellationToken);
-        return await credStore.GetCredentialsAsync(registry, cancellationToken);
+        (ICredStore credStore, string serverAddress) = await GetCredStoreAsync(
+            registryReference,
+            registry,
+            fileSystem,
+            processService,
+            environment,
+            cancellationToken);
+        return await credStore.GetCredentialsAsync(serverAddress, cancellationToken);
     }
 
     /// <summary>
@@ -112,16 +123,25 @@ public static class CredsProvider
     /// </summary>
     internal static string[] GetConfigFilePaths(IEnvironment env)
     {
+        return GetConfigFiles(env)
+            .Select(configFile => configFile.Path)
+            .ToArray();
+    }
+
+    private static RegistryConfigFile[] GetConfigFiles(IEnvironment env)
+    {
         if (env.GetEnvironmentVariable("REGISTRY_AUTH_FILE") is { Length: > 0 } configFile)
         {
-            return [configFile];
+            return [new RegistryConfigFile(configFile, RegistryConfigFormat.Containers)];
         }
 
-        List<string> paths = [];
+        List<RegistryConfigFile> configFiles = [];
 
         if (env.GetEnvironmentVariable("XDG_RUNTIME_DIR") is { Length: > 0 } xdgRuntimeDir)
         {
-            paths.Add(Path.Combine(xdgRuntimeDir, "containers", "auth.json"));
+            configFiles.Add(new RegistryConfigFile(
+                Path.Combine(xdgRuntimeDir, "containers", "auth.json"),
+                RegistryConfigFormat.Containers));
         }
 
         string? xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
@@ -129,70 +149,82 @@ public static class CredsProvider
         {
             xdgConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
-        paths.Add(Path.Combine(xdgConfigDir, "containers", "auth.json"));
+        configFiles.Add(new RegistryConfigFile(
+            Path.Combine(xdgConfigDir, "containers", "auth.json"),
+            RegistryConfigFormat.Containers));
 
         string? dockerConfigDir = env.GetEnvironmentVariable("DOCKER_CONFIG");
         if (string.IsNullOrEmpty(dockerConfigDir))
         {
             dockerConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".docker");
         }
-        paths.Add(Path.Combine(dockerConfigDir, "config.json"));
+        configFiles.Add(new RegistryConfigFile(
+            Path.Combine(dockerConfigDir, "config.json"),
+            RegistryConfigFormat.Docker));
 
-        return [.. paths];
+        return [.. configFiles];
     }
 
-    private static async Task<ICredStore> GetCredStoreAsync(
-        string registry,
+    private static async Task<(ICredStore CredStore, string ServerAddress)> GetCredStoreAsync(
+        RegistryReference registryReference,
+        string requestedRegistry,
         IFileSystem fileSystem,
         IProcessService processService,
         IEnvironment environment,
         CancellationToken cancellationToken)
     {
-        string[] configFilePaths = GetConfigFilePaths(environment);
-        string hostname = ConvertToHostname(registry);
+        RegistryConfigFile[] configFiles = GetConfigFiles(environment);
 
         bool configFileFound = false;
-        foreach (var configFilePath in configFilePaths)
+        foreach (RegistryConfigFile configFile in configFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!fileSystem.FileExists(configFilePath))
+            if (!fileSystem.FileExists(configFile.Path))
             {
                 continue;
             }
 
             configFileFound = true;
 
-            using Stream openStream = fileSystem.FileOpenRead(configFilePath);
+            using Stream openStream = fileSystem.FileOpenRead(configFile.Path);
             using JsonDocument configDoc = await JsonDocument.ParseAsync(openStream, cancellationToken: cancellationToken);
 
-            if (configDoc.RootElement.TryGetProperty("credHelpers", out JsonElement credHelpersElement) &&
-                credHelpersElement.TryGetProperty(registry, out JsonElement credHelperElement))
+            if (configDoc.RootElement.TryGetProperty("credHelpers", out JsonElement credHelpersElement))
             {
-                string? credHelperName = credHelperElement.GetString();
-                return credHelperName is null
-                    ? throw new JsonException($"Name of the credHelper for host '{registry}' was not set in Docker config {configFilePath}.")
-                    : (ICredStore)new NativeStore(credHelperName, processService, fileSystem, environment);
+                JsonProperty? credHelperProperty = registryReference.FindCredentialHelper(
+                    credHelpersElement,
+                    configFile.Format);
+                if (credHelperProperty is JsonProperty property)
+                {
+                    string? credHelperName = property.Value.GetString();
+                    return credHelperName is null
+                        ? throw new JsonException(
+                            $"Name of the credHelper for host '{property.Name}' was not set in Docker config {configFile.Path}.")
+                        : (new NativeStore(credHelperName, processService, fileSystem, environment), property.Name);
+                }
             }
 
-            if (configDoc.RootElement.TryGetProperty("credsStore", out JsonElement credsStoreElement))
+            if (configFile.Format == RegistryConfigFormat.Docker &&
+                configDoc.RootElement.TryGetProperty("credsStore", out JsonElement credsStoreElement))
             {
                 string? credHelperName = credsStoreElement.GetString();
                 return credHelperName is null
-                    ? throw new JsonException($"Name of the credsStore was not set in Docker config {configFilePath}.")
-                    : (ICredStore)new NativeStore(credHelperName, processService, fileSystem, environment);
+                    ? throw new JsonException($"Name of the credsStore was not set in Docker config {configFile.Path}.")
+                    : (
+                        new NativeStore(credHelperName, processService, fileSystem, environment),
+                        registryReference.DockerKey);
             }
 
             if (configDoc.RootElement.TryGetProperty("auths", out JsonElement authsElement))
             {
-                JsonProperty property = authsElement.EnumerateObject().FirstOrDefault(prop => ConvertToHostname(prop.Name).Equals(hostname, StringComparison.InvariantCultureIgnoreCase));
-
-                if (property.Equals(default(JsonProperty)))
+                JsonProperty? property = registryReference.FindAuth(authsElement, configFile.Format);
+                if (property is null)
                 {
                     continue;
                 }
 
-                return new EncodedStore(property, configFilePath);
+                return (new EncodedStore(property.Value, configFile.Path), property.Value.Name);
             }
         }
 
@@ -201,27 +233,6 @@ public static class CredsProvider
             throw new FileNotFoundException($"Docker config file doesn't exist.");
         }
 
-        throw new CredsNotFoundException($"No matching auth specified for registry '{registry}' in Docker config.");
-    }
-
-    private static string ConvertToHostname(string input)
-    {
-        const string Https = "https://";
-        const string Http = "http://";
-        
-        string stripped = input;
-
-        if (input.StartsWith(Http)) 
-        {
-            stripped = input.Replace(Http, string.Empty);
-        }
-        else if (input.StartsWith(Https)) 
-        {
-            stripped = input.Replace(Https, string.Empty);
-        }
-
-        var hostname = stripped.Split('/')[0];
-
-        return hostname;
+        throw new CredsNotFoundException($"No matching auth specified for registry '{requestedRegistry}' in Docker config.");
     }
 }
