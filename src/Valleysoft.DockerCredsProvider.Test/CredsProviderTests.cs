@@ -835,18 +835,21 @@ public class CredsProviderTests
 
     [Theory]
     // REGISTRY_AUTH_FILE replaces all
-    [InlineData("registryauthfile", "xdgruntimedir", "xdgconfigdir", "dockerconfigdir", new[] { "registryauthfile" } )]
+    [InlineData("registryauthfile", "xdgruntimedir", "xdgconfighome", "xdgconfigdir", "dockerconfigdir", new[] { "registryauthfile" } )]
     // Order of different paths.
-    [InlineData("",                 "xdgruntimedir", "xdgconfigdir", "dockerconfigdir", new[] { "xdgruntimedir/containers/auth.json",
-                                                                                                "xdgconfigdir/containers/auth.json",
-                                                                                                "dockerconfigdir/config.json" } )]
-    // XDG_CONFIG_DIR defaults to $HOME/.config
-    [InlineData("",                 "",              "",             "dockerconfigdir", new[] { "userprofile/.config/containers/auth.json",
-                                                                                                "dockerconfigdir/config.json" } )]
+    [InlineData("",                 "xdgruntimedir", "xdgconfighome", "xdgconfigdir", "dockerconfigdir", new[] { "xdgruntimedir/containers/auth.json",
+                                                                                                                "xdgconfighome/containers/auth.json",
+                                                                                                                "dockerconfigdir/config.json" } )]
+    // XDG_CONFIG_DIR is used when XDG_CONFIG_HOME is unset.
+    [InlineData("",                 "",              "",              "xdgconfigdir", "dockerconfigdir", new[] { "xdgconfigdir/containers/auth.json",
+                                                                                                                "dockerconfigdir/config.json" } )]
+    // XDG_CONFIG_HOME defaults to $HOME/.config when neither config variable is set.
+    [InlineData("",                 "",              "",              "",             "dockerconfigdir", new[] { "userprofile/.config/containers/auth.json",
+                                                                                                                "dockerconfigdir/config.json" } )]
     // DOCKER_CONFIG defaults to $HOME/.docker
-    [InlineData("",                 "",              "",             "",                new[] { "userprofile/.config/containers/auth.json",
-                                                                                                "userprofile/.docker/config.json" } )]
-    public void ConfigFilePaths(string? registryAuthFile, string? xdgRuntimeDir, string? xdgConfigDir, string? dockerConfig, string[] expectedConfigFilePaths)
+    [InlineData("",                 "",              "",              "",             "",                new[] { "userprofile/.config/containers/auth.json",
+                                                                                                                "userprofile/.docker/config.json" } )]
+    public void ConfigFilePaths(string? registryAuthFile, string? xdgRuntimeDir, string? xdgConfigHome, string? xdgConfigDir, string? dockerConfig, string[] expectedConfigFilePaths)
     {
         for (int i = 0; i < expectedConfigFilePaths.Length; i++)
         {
@@ -857,6 +860,7 @@ public class CredsProviderTests
         Mock<IEnvironment> envMock = new();
         envMock.Setup(o => o.GetEnvironmentVariable("REGISTRY_AUTH_FILE")).Returns(registryAuthFile);
         envMock.Setup(o => o.GetEnvironmentVariable("XDG_RUNTIME_DIR")).Returns(xdgRuntimeDir);
+        envMock.Setup(o => o.GetEnvironmentVariable("XDG_CONFIG_HOME")).Returns(xdgConfigHome);
         envMock.Setup(o => o.GetEnvironmentVariable("XDG_CONFIG_DIR")).Returns(xdgConfigDir);
         envMock.Setup(o => o.GetEnvironmentVariable("DOCKER_CONFIG")).Returns(dockerConfig);
         envMock.Setup(e => e.GetFolderPath(Environment.SpecialFolder.UserProfile)).Returns("userprofile");

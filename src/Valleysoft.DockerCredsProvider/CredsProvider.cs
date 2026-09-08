@@ -144,13 +144,17 @@ public static class CredsProvider
                 RegistryConfigFormat.Containers));
         }
 
-        string? xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
-        if (string.IsNullOrEmpty(xdgConfigDir))
+        string? containersConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (string.IsNullOrEmpty(containersConfigDir))
         {
-            xdgConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+            containersConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
+        }
+        if (string.IsNullOrEmpty(containersConfigDir))
+        {
+            containersConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
         configFiles.Add(new RegistryConfigFile(
-            Path.Combine(xdgConfigDir, "containers", "auth.json"),
+            Path.Combine(containersConfigDir, "containers", "auth.json"),
             RegistryConfigFormat.Containers));
 
         string? dockerConfigDir = env.GetEnvironmentVariable("DOCKER_CONFIG");
