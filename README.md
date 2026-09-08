@@ -44,10 +44,11 @@ If `REGISTRY_AUTH_FILE` is set, the library checks only that file. Otherwise,
 it checks these locations in order:
 
 1. `$XDG_RUNTIME_DIR/containers/auth.json`, when `XDG_RUNTIME_DIR` is set.
-2. `$XDG_CONFIG_HOME/containers/auth.json`, when `XDG_CONFIG_HOME` is set.
-   The deprecated `XDG_CONFIG_DIR` variable is supported as a compatibility
-   alias when `XDG_CONFIG_HOME` is unset. If neither variable is set, the
-   location defaults to `$HOME/.config/containers/auth.json`.
+2. The persistent containers auth file: `$XDG_CONFIG_HOME/containers/auth.json`
+   when `XDG_CONFIG_HOME` is set, `$XDG_CONFIG_DIR/containers/auth.json` when
+   it is not, or `$HOME/.config/containers/auth.json` when neither variable is
+   set. `XDG_CONFIG_DIR` is deprecated and supported only as a compatibility
+   alias.
 3. `$DOCKER_CONFIG/config.json`, or `$HOME/.docker/config.json` when
    `DOCKER_CONFIG` is unset.
 
