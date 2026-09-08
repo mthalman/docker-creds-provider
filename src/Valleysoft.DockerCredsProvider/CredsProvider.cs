@@ -204,7 +204,7 @@ public static class CredsProvider
                     string? credHelperName = property.Value.GetString();
                     return credHelperName is null
                         ? throw new JsonException(
-                            $"Name of the credHelper for host '{property.Name}' was not set in Docker config {configFile.Path}.")
+                            $"Name of the credHelper for host '{property.Name}' was not set in config file '{configFile.Path}'.")
                         : (new NativeStore(credHelperName, processService, fileSystem, environment), property.Name);
                 }
             }
