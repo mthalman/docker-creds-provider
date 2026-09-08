@@ -124,7 +124,11 @@ public static class CredsProvider
             paths.Add(Path.Combine(xdgRuntimeDir, "containers", "auth.json"));
         }
 
-        string? xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
+        string? xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (string.IsNullOrEmpty(xdgConfigDir))
+        {
+            xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
+        }
         if (string.IsNullOrEmpty(xdgConfigDir))
         {
             xdgConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");

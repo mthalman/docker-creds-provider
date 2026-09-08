@@ -38,8 +38,21 @@ DockerCredentials credentials =
 The returned `DockerCredentials` object provides the username and either a
 password or identity token. The library follows
 [Docker's credential configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
-to locate the credentials. Native credential helpers have a 30-second timeout;
-an expired timeout throws `TimeoutException`, while caller cancellation throws
+to locate the credentials.
+
+If `REGISTRY_AUTH_FILE` is set, the library checks only that file. Otherwise,
+it checks these locations in order:
+
+1. `$XDG_RUNTIME_DIR/containers/auth.json`, when `XDG_RUNTIME_DIR` is set.
+2. `$XDG_CONFIG_HOME/containers/auth.json`, when `XDG_CONFIG_HOME` is set.
+   The deprecated `XDG_CONFIG_DIR` variable is supported as a compatibility
+   alias when `XDG_CONFIG_HOME` is unset. If neither variable is set, the
+   location defaults to `$HOME/.config/containers/auth.json`.
+3. `$DOCKER_CONFIG/config.json`, or `$HOME/.docker/config.json` when
+   `DOCKER_CONFIG` is unset.
+
+Native credential helpers have a 30-second timeout; an expired timeout throws
+`TimeoutException`, while caller cancellation throws
 `OperationCanceledException`.
 
 ## Contribute
