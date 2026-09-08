@@ -124,12 +124,16 @@ public static class CredsProvider
             paths.Add(Path.Combine(xdgRuntimeDir, "containers", "auth.json"));
         }
 
-        string? xdgConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
-        if (string.IsNullOrEmpty(xdgConfigDir))
+        string? containersConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (string.IsNullOrEmpty(containersConfigDir))
         {
-            xdgConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+            containersConfigDir = env.GetEnvironmentVariable("XDG_CONFIG_DIR");
         }
-        paths.Add(Path.Combine(xdgConfigDir, "containers", "auth.json"));
+        if (string.IsNullOrEmpty(containersConfigDir))
+        {
+            containersConfigDir = Path.Combine(env.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+        }
+        paths.Add(Path.Combine(containersConfigDir, "containers", "auth.json"));
 
         string? dockerConfigDir = env.GetEnvironmentVariable("DOCKER_CONFIG");
         if (string.IsNullOrEmpty(dockerConfigDir))
