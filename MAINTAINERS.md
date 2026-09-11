@@ -114,8 +114,8 @@ version.
    both the `.nupkg` and `.snupkg` attachments.
 
 The workflow builds and tests the tagged commit, packs once without rebuilding,
-and fails if the tag does not match the MinVer package filename. It retains the
-package and symbols as workflow artifacts for one day.
+and requires exactly one package and one symbol package whose filenames match
+the tag. It retains the package and symbols as workflow artifacts for one day.
 
 The protected publishing job downloads those artifacts without rebuilding. It
 reuses an existing published GitHub Release for the tag, or requires exactly one

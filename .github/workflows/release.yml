@@ -54,11 +54,18 @@ jobs:
         run: |
           expected_version="${GITHUB_REF_NAME#v}"
           expected_package="package-output/Valleysoft.DockerCredsProvider.${expected_version}.nupkg"
+          expected_symbols="package-output/Valleysoft.DockerCredsProvider.${expected_version}.snupkg"
           shopt -s nullglob
           packages=(package-output/*.nupkg)
+          symbols=(package-output/*.snupkg)
 
           if [[ "$GITHUB_REF_NAME" == "$expected_version" || ${#packages[@]} -ne 1 || "${packages[0]}" != "$expected_package" ]]; then
             echo "::error::Tag '$GITHUB_REF_NAME' does not match the MinVer package: ${packages[*]:-none}."
+            exit 1
+          fi
+
+          if [[ ${#symbols[@]} -ne 1 || "${symbols[0]}" != "$expected_symbols" ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match the MinVer symbol package: ${symbols[*]:-none}."
             exit 1
           fi
 
