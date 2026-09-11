@@ -274,17 +274,67 @@ public class RegistryMatchingTests
                 environment.Object));
     }
 
-    [Fact]
-    public async Task ContainersInlineAuthPrefersExactNamespaceRegardlessOfPropertyOrder()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ContainersInlineAuthPrefersExactNamespaceRegardlessOfPropertyOrder(
+        bool exactFirst)
     {
         const string Registry = "registry.example.com/team/image";
-        string hostAuth = EncodeCredentials("host-user");
-        string namespaceAuth = EncodeCredentials("namespace-user");
+        string exactEntry =
+            $"\"registry.example.com/team/image\": " +
+            $"{{ \"auth\": \"{EncodeCredentials("namespace-user")}\" }}";
+        string hostEntry =
+            $"\"registry.example.com\": " +
+            $"{{ \"auth\": \"{EncodeCredentials("host-user")}\" }}";
+        string entries = exactFirst
+            ? $"{exactEntry},{hostEntry}"
+            : $"{hostEntry},{exactEntry}";
+        string config = $"{{ \"auths\": {{ {entries} }} }}";
+
+        DockerCredentials credentials = await GetCredentialsFromConfigAsync(
+            Registry,
+            config,
+            RegistryConfigFormat.Containers);
+
+        Assert.Equal("namespace-user", credentials.Username);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ContainersInlineAuthFallsBackThroughNamespaceRegardlessOfPropertyOrder(
+        bool parentFirst)
+    {
+        const string Registry = "registry.example.com/team/project/image";
+        string parentEntry =
+            $"\"registry.example.com/team\": " +
+            $"{{ \"auth\": \"{EncodeCredentials("parent-user")}\" }}";
+        string hostEntry =
+            $"\"registry.example.com\": " +
+            $"{{ \"auth\": \"{EncodeCredentials("host-user")}\" }}";
+        string entries = parentFirst
+            ? $"{parentEntry},{hostEntry}"
+            : $"{hostEntry},{parentEntry}";
+        string config = $"{{ \"auths\": {{ {entries} }} }}";
+
+        DockerCredentials credentials = await GetCredentialsFromConfigAsync(
+            Registry,
+            config,
+            RegistryConfigFormat.Containers);
+
+        Assert.Equal("parent-user", credentials.Username);
+    }
+
+    [Fact]
+    public async Task ContainersInlineAuthFallsBackThroughNamespaceWithPort()
+    {
+        const string Registry = "registry.example.com:5000/team/image";
         string config =
             "{" +
                 "\"auths\": {" +
-                    $"\"registry.example.com\": {{ \"auth\": \"{hostAuth}\" }}," +
-                    $"\"registry.example.com/team/image\": {{ \"auth\": \"{namespaceAuth}\" }}" +
+                    $"\"registry.example.com:5000\": {{ \"auth\": \"{EncodeCredentials("host-user")}\" }}," +
+                    $"\"registry.example.com:5000/team\": {{ \"auth\": \"{EncodeCredentials("parent-user")}\" }}" +
                 "}" +
             "}";
 
@@ -293,7 +343,28 @@ public class RegistryMatchingTests
             config,
             RegistryConfigFormat.Containers);
 
-        Assert.Equal("namespace-user", credentials.Username);
+        Assert.Equal("parent-user", credentials.Username);
+    }
+
+    [Fact]
+    public async Task ContainersInlineAuthDoesNotMatchUnrelatedNamespace()
+    {
+        const string Registry = "registry.example.com/team/image";
+        string config =
+            "{" +
+                "\"auths\": {" +
+                    $"\"registry.example.com/other\": {{ \"auth\": \"{EncodeCredentials("unexpected-user")}\" }}" +
+                "}" +
+            "}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) =
+            CreateConfig(config, RegistryConfigFormat.Containers);
+
+        await Assert.ThrowsAsync<CredsNotFoundException>(() =>
+            CredsProvider.GetCredentialsAsync(
+                Registry,
+                fileSystem.Object,
+                Mock.Of<IProcessService>(),
+                environment.Object));
     }
 
     [Fact]
