@@ -10,6 +10,9 @@ namespace Valleysoft.DockerCredsProvider;
 internal class NativeStore : ICredStore
 {
     internal static readonly TimeSpan HelperTimeout = TimeSpan.FromSeconds(30);
+    internal const int HelperOutputLimit = 1024 * 1024;
+    private static readonly Encoding HelperEncoding = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false);
 
     private readonly string _credHelperName;
     private readonly IProcessService _processService;
@@ -148,55 +151,57 @@ internal class NativeStore : ICredStore
         ProcessStartInfo startInfo = new(commandPath, command)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = false,
+            CreateNoWindow = true,
             UseShellExecute = false,
             RedirectStandardInput = input is not null,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            StandardOutputEncoding = HelperEncoding,
+            StandardErrorEncoding = HelperEncoding
         };
 
-        StringBuilder stdOutput = new();
-        StringBuilder stdError = new();
-
-        int exitCode;
+        ProcessResult result;
         try
         {
-            exitCode = await _processService.RunAsync(
+            result = await _processService.RunAsync(
                 startInfo,
                 input,
-                GetDataReceivedHandler(stdOutput),
-                GetDataReceivedHandler(stdError),
+                HelperOutputLimit,
                 HelperTimeout,
                 cancellationToken);
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 2)
         {
-            throw new InvalidOperationException($"Unable to execute the '{startInfo.FileName}' executable. Be sure that Docker is installed and that its bin location is specified in your environment's path.", e);
+            throw new InvalidOperationException(
+                $"Unable to execute credential helper '{helperName}'. Be sure that Docker is installed " +
+                "and that its bin location is specified in your environment's path.",
+                e);
+        }
+        catch (ProcessOutputLimitExceededException e)
+        {
+            throw new InvalidOperationException(
+                $"Credential helper '{helperName}' exceeded the {e.Limit}-byte {e.StreamName} limit. " +
+                "Helper output was omitted because it may contain credentials.",
+                e);
+        }
+        catch (ProcessStreamException e)
+        {
+            string exitCode = e.ExitCode?.ToString() ?? "unavailable";
+            throw new InvalidOperationException(
+                $"Credential helper '{helperName}' encountered a {e.StreamName} failure " +
+                $"(exit code {exitCode}). Helper output was omitted because it may contain credentials.",
+                e);
         }
 
-        if (exitCode != 0)
+        if (result.ExitCode != 0)
         {
-            string output = stdOutput.ToString();
-            string error = stdError.ToString();
-
             throw new CredsNotFoundException(
-                $"Credential helper '{helperName}' exited with code {exitCode} " +
-                $"(captured standard output length: {output.Length} characters; " +
-                $"captured standard error length: {error.Length} characters). " +
+                $"Credential helper '{helperName}' exited with code {result.ExitCode} " +
+                $"(captured standard output length: {result.StandardOutput.Length} characters; " +
+                $"captured standard error length: {result.StandardError.Length} characters). " +
                 "Helper output was omitted because it may contain credentials.");
         }
 
-        return stdOutput.ToString();
-    }
-
-    private static Action<string?> GetDataReceivedHandler(StringBuilder stringBuilder)
-    {
-        return new Action<string?>(value =>
-        {
-            if (value is not null)
-            {
-                stringBuilder.AppendLine(value);
-            }
-        });
+        return result.StandardOutput;
     }
 }

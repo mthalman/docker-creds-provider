@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Valleysoft.DockerCredsProvider\Valleysoft.DockerCredsProvider.csproj" />
+    <ProjectReference Include="..\Valleysoft.DockerCredsProvider.Test.Helper\Valleysoft.DockerCredsProvider.Test.Helper.csproj" />
   </ItemGroup>
 
 </Project>

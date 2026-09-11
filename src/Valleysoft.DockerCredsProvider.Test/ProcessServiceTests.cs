@@ -1,179 +1,807 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using Xunit;
 
 namespace Valleysoft.DockerCredsProvider.Test;
 
 public class ProcessServiceTests
 {
-    [Fact]
-    public async Task RunAsync_SuccessfulCompletion()
-    {
-        ProcessStartInfo startInfo = CreateCommand("echo success");
-        List<string> output = new();
+    private const int OutputLimit = 1024 * 1024;
 
-        int exitCode = await new ProcessService().RunAsync(
+    [Fact]
+    public async Task RunAsync_SuccessfullyDrainsOutput()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("success");
+        using ProcessObservation observation = new();
+        StreamReader? standardOutput = null;
+        StreamReader? standardError = null;
+
+        ProcessResult result = await new ProcessService(process =>
+        {
+            observation.Capture(process);
+            standardOutput = process.StandardOutput;
+            standardError = process.StandardError;
+        }).RunAsync(
             startInfo,
-            input: null,
-            value =>
-            {
-                if (value is not null)
-                {
-                    output.Add(value);
-                }
-            },
-            _ => { },
+            "registry.example.com",
+            OutputLimit,
             TimeSpan.FromSeconds(5),
             CancellationToken.None);
 
-        Assert.Equal(0, exitCode);
-        Assert.Contains("success", output);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            "{\"Username\":\"fixture-user\",\"Secret\":\"fixture-secret\",\"ServerURL\":\"registry.example.com\"}",
+            result.StandardOutput);
+        Assert.Empty(result.StandardError);
+        observation.AssertExitedAndDisposed();
+        AssertReaderDisposed(standardOutput);
+        AssertReaderDisposed(standardError);
     }
 
     [Fact]
-    public async Task RunAsync_CallerCancellationTerminatesProcess()
+    public async Task RunAsync_DrainsBothStreamsBeforeHelperReadsInput()
     {
-        ProcessStartInfo startInfo = CreateSleepCommand(TimeSpan.FromSeconds(30));
+        using ProcessObservation observation = new();
+        string payload = new('x', OutputLimit);
+
+        ProcessResult result = await new ProcessService(observation.Capture).RunAsync(
+            CreateHelperCommand("pipe-pressure", OutputLimit.ToString(CultureInfo.InvariantCulture)),
+            payload,
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(payload, result.StandardOutput);
+        Assert.Equal(payload, result.StandardError);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Theory]
+    [InlineData("stdout", "standard output")]
+    [InlineData("stderr", "standard error")]
+    public async Task RunAsync_OutputOverflowTerminatesHelperWithBlockedInput(
+        string fixtureStream,
+        string expectedStreamName)
+    {
+        using ProcessObservation observation = new();
+        Task<ProcessResult> runTask = new ProcessService(observation.Capture).RunAsync(
+            CreateHelperCommand(
+                "overflow-blocked-input",
+                fixtureStream,
+                OutputLimit.ToString(CultureInfo.InvariantCulture)),
+            new string('x', OutputLimit),
+            OutputLimit,
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+
+        Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+        ProcessOutputLimitExceededException exception =
+            await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() => runTask);
+
+        Assert.Equal(expectedStreamName, exception.StreamName);
+        Assert.Equal(OutputLimit, exception.Limit);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_WritesInputAsUtf8()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("get");
+        startInfo.StandardInputEncoding = Encoding.ASCII;
+
+        ProcessResult result = await new ProcessService().RunAsync(
+            startInfo,
+            "unicode-registry-例",
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("\"Username\":\"fixture-user\"", result.StandardOutput);
+        Assert.Empty(result.StandardError);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, false)]
+    public async Task RunAsync_CompletesWithOptionalRedirection(
+        bool redirectInput,
+        bool redirectOutput,
+        bool redirectError)
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("output", "stdout", "0");
+        startInfo.RedirectStandardInput = redirectInput;
+        startInfo.RedirectStandardOutput = redirectOutput;
+        startInfo.RedirectStandardError = redirectError;
+        using ProcessObservation observation = new();
+
+        ProcessResult result = await new ProcessService(observation.Capture).RunAsync(
+            startInfo,
+            input: null,
+            maxOutputBytesPerStream: 0,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Empty(result.StandardError);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_DoesNotWriteConfiguredInputEncodingPreamble()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("get");
+        startInfo.StandardInputEncoding = Encoding.Unicode;
+
+        ProcessResult result = await new ProcessService().RunAsync(
+            startInfo,
+            "password",
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("\"Username\":\"fixture-user\"", result.StandardOutput);
+        Assert.Empty(result.StandardError);
+    }
+
+    [Fact]
+    public async Task RunAsync_PropertyAbsentFallbackPreservesConsoleEncoding()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("get");
+        Encoding originalEncoding = Console.InputEncoding;
+
+        ProcessResult result = await new ProcessService(
+            forceStandardInputEncodingFallback: true).RunAsync(
+                startInfo,
+                "password",
+                OutputLimit,
+                TimeSpan.FromSeconds(5),
+                CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("\"Username\":\"fixture-user\"", result.StandardOutput);
+        Assert.Empty(result.StandardError);
+        Assert.Equal(originalEncoding.CodePage, Console.InputEncoding.CodePage);
+        Assert.Equal(originalEncoding.GetPreamble(), Console.InputEncoding.GetPreamble());
+    }
+
+    [Fact]
+    public async Task RunAsync_ReturnsFailureExitCodeAndDrainedOutput()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("failure");
+        using ProcessObservation observation = new();
+        StreamReader? standardOutput = null;
+        StreamReader? standardError = null;
+
+        ProcessResult result = await new ProcessService(process =>
+        {
+            observation.Capture(process);
+            standardOutput = process.StandardOutput;
+            standardError = process.StandardError;
+        }).RunAsync(
+            startInfo,
+            input: null,
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(17, result.ExitCode);
+        Assert.Equal("fixture-stdout-secret", result.StandardOutput);
+        Assert.Equal("fixture-stderr-secret", result.StandardError);
+        observation.AssertExitedAndDisposed();
+        AssertReaderDisposed(standardOutput);
+        AssertReaderDisposed(standardError);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProcessExitSupersedesClosedInputPipe()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("failure");
+
+        ProcessResult result = await new ProcessService().RunAsync(
+            startInfo,
+            new string('x', OutputLimit),
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(17, result.ExitCode);
+        Assert.Equal("fixture-stdout-secret", result.StandardOutput);
+        Assert.Equal("fixture-stderr-secret", result.StandardError);
+    }
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(OutputLimit)]
+    public async Task RunAsync_ExitedHelperPreservesResultWhenClosingInputFails(int inputLength)
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("failure");
+        using ProcessObservation observation = new();
+
+        ProcessResult result = await new ProcessService(process =>
+        {
+            observation.Capture(process);
+            Assert.True(process.WaitForExit(5000));
+        }).RunAsync(
+            startInfo,
+            new string('x', inputLength),
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(17, result.ExitCode);
+        Assert.Equal("fixture-stdout-secret", result.StandardOutput);
+        Assert.Equal("fixture-stderr-secret", result.StandardError);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_CallerCancellationTerminatesAndDisposesProcess()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("wait");
         using CancellationTokenSource cancellationSource = new(TimeSpan.FromMilliseconds(200));
-        int processId = 0;
+        using ProcessObservation observation = new();
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new ProcessService(process => processId = process.Id).RunAsync(
+            new ProcessService(observation.Capture).RunAsync(
                 startInfo,
                 input: null,
-                _ => { },
-                _ => { },
+                OutputLimit,
                 TimeSpan.FromSeconds(30),
                 cancellationSource.Token));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
-        AssertProcessExited(processId);
+        observation.AssertExitedAndDisposed();
     }
 
     [Fact]
-    public async Task RunAsync_TimeoutTerminatesProcess()
+    public async Task RunAsync_TimeoutTerminatesAndDisposesProcess()
     {
-        ProcessStartInfo startInfo = CreateSleepCommand(TimeSpan.FromSeconds(30));
-        int processId = 0;
+        ProcessStartInfo startInfo = CreateHelperCommand("wait");
+        using ProcessObservation observation = new();
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         await Assert.ThrowsAsync<TimeoutException>(() =>
-            new ProcessService(process => processId = process.Id).RunAsync(
+            new ProcessService(observation.Capture).RunAsync(
                 startInfo,
                 input: null,
-                _ => { },
-                _ => { },
+                OutputLimit,
                 TimeSpan.FromMilliseconds(200),
                 CancellationToken.None));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
-        AssertProcessExited(processId);
+        observation.AssertExitedAndDisposed();
     }
 
     [Fact]
-    public async Task RunAsync_CompletionNearDeadlineDoesNotTimeOut()
+    public async Task RunAsync_TerminationFailureDoesNotReplaceCancellation()
     {
-        ProcessStartInfo startInfo = CreateSleepCommand(TimeSpan.FromMilliseconds(1250));
+        ProcessStartInfo startInfo = CreateHelperCommand("wait");
+        using CancellationTokenSource cancellationSource = new(TimeSpan.FromMilliseconds(200));
+        Process? startedProcess = null;
+        Process? cleanupProcess = null;
+        int attempts = 0;
+        Stopwatch stopwatch = Stopwatch.StartNew();
 
-        int exitCode = await new ProcessService().RunAsync(
+        try
+        {
+            OperationCanceledException exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                new ProcessService(
+                    process =>
+                    {
+                        startedProcess = process;
+                        cleanupProcess = Process.GetProcessById(process.Id);
+                    },
+                    _ =>
+                    {
+                        attempts++;
+                        throw new Win32Exception("Simulated termination failure.");
+                    })
+                .RunAsync(
+                    startInfo,
+                    new string('x', OutputLimit),
+                    OutputLimit,
+                    TimeSpan.FromSeconds(30),
+                    cancellationSource.Token));
+
+            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
+            Assert.Equal(1, attempts);
+            Assert.NotNull(startedProcess);
+            Assert.Throws<InvalidOperationException>(() => _ = startedProcess.SafeHandle);
+            Assert.Equal(
+                "Credential helper termination could not be confirmed; the process may still be running.",
+                exception.Data["CredentialHelperCleanup"]);
+        }
+        finally
+        {
+            if (cleanupProcess is not null)
+            {
+                cleanupProcess.Kill(entireProcessTree: true);
+                cleanupProcess.Dispose();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public async Task RunAsync_UnconfirmedTerminationPreservesOriginalFailure(bool cancel, bool terminationThrows)
+    {
+        using CancellationTokenSource cancellationSource = new();
+        using ProcessObservation observation = new();
+        int attempts = 0;
+        Task runTask = new ProcessService(
+            process =>
+            {
+                observation.Capture(process);
+                if (cancel)
+                {
+                    cancellationSource.Cancel();
+                }
+            },
+            process =>
+            {
+                attempts++;
+                if (terminationThrows)
+                {
+                    throw new Win32Exception("Termination failure.");
+                }
+
+                return true;
+            }).RunAsync(
+                CreateHelperCommand("wait"),
+                new string('x', OutputLimit),
+                OutputLimit,
+                cancel ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(200),
+                cancellationSource.Token);
+
+        Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+        Exception exception = cancel
+            ? await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask)
+            : await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+
+        Assert.Equal(1, attempts);
+        Assert.Equal(
+            "Credential helper termination could not be confirmed; the process may still be running.",
+            exception.Data["CredentialHelperCleanup"]);
+        observation.AssertRunningAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_StreamFailureRetainsCleanupDiagnostic()
+    {
+        using ProcessObservation observation = new();
+        int attempts = 0;
+        ProcessStreamException exception = await Assert.ThrowsAsync<ProcessStreamException>(() =>
+            new ProcessService(
+                process =>
+                {
+                    observation.Capture(process);
+                    process.StandardOutput.Dispose();
+                },
+                _ =>
+                {
+                    attempts++;
+                    throw new Win32Exception("Termination failure.");
+                }).RunAsync(
+                    CreateHelperCommand("wait"),
+                    input: null,
+                    OutputLimit,
+                    TimeSpan.FromSeconds(5),
+                    CancellationToken.None));
+
+        Assert.Equal(1, attempts);
+        Assert.Equal("standard output", exception.StreamName);
+        Assert.Null(exception.ExitCode);
+        ProcessStreamException original = Assert.IsType<ProcessStreamException>(exception.InnerException);
+        Assert.Equal(
+            "Credential helper termination could not be confirmed; the process may still be running.",
+            original.Data["CredentialHelperCleanup"]);
+        observation.AssertRunningAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_UnconfirmedTerminationDoesNotExtendTimeoutIndefinitely()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand("wait");
+        Process? cleanupProcess = null;
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        Task runTask = new ProcessService(
+            process => cleanupProcess = Process.GetProcessById(process.Id),
+            _ => true).RunAsync(
+                startInfo,
+                input: null,
+                OutputLimit,
+                TimeSpan.FromMilliseconds(200),
+                CancellationToken.None);
+
+        try
+        {
+            Task completedTask = await Task.WhenAny(
+                runTask,
+                Task.Delay(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(runTask, completedTask);
+            TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+            Assert.Equal(
+                "Credential helper termination could not be confirmed; the process may still be running.",
+                exception.Data["CredentialHelperCleanup"]);
+            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            if (cleanupProcess is not null)
+            {
+                cleanupProcess.Kill(entireProcessTree: true);
+                cleanupProcess.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_SingleProcessTerminationDoesNotWaitForDescendantPipe()
+    {
+        string childProcessIdPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.pid");
+        ProcessStartInfo startInfo = CreateHelperCommand(
+            "spawn-child",
+            childProcessIdPath);
+        Task runTask = new ProcessService(
+            _ => { },
+            process =>
+            {
+                process.Kill();
+                return true;
+            }).RunAsync(
+                startInfo,
+                input: null,
+                OutputLimit,
+                TimeSpan.FromSeconds(1),
+                CancellationToken.None);
+
+        try
+        {
+            Task completedTask = await Task.WhenAny(
+                runTask,
+                Task.Delay(TimeSpan.FromSeconds(5)));
+
+            Assert.Same(runTask, completedTask);
+            await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+        }
+        finally
+        {
+            if (File.Exists(childProcessIdPath))
+            {
+                int childProcessId = int.Parse(
+                    File.ReadAllText(childProcessIdPath),
+                    CultureInfo.InvariantCulture);
+                using Process childProcess = Process.GetProcessById(childProcessId);
+                childProcess.Kill(entireProcessTree: true);
+                File.Delete(childProcessIdPath);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_TerminatesLiveParentAndDescendant(bool cancel)
+    {
+        string childProcessIdPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pid");
+        using ProcessObservation observation = new();
+        using CancellationTokenSource cancellationSource = new();
+        Process? child = null;
+        try
+        {
+            Task runTask = new ProcessService(process =>
+            {
+                observation.Capture(process);
+                Assert.Equal("ready", process.StandardOutput.ReadLineAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult());
+                child = Process.GetProcessById(int.Parse(
+                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+                _ = child.SafeHandle;
+                Assert.False(process.HasExited);
+                Assert.False(child.HasExited);
+                if (cancel)
+                {
+                    cancellationSource.Cancel();
+                }
+            }).RunAsync(
+                CreateHelperCommand("spawn-child", childProcessIdPath),
+                input: null,
+                OutputLimit,
+                cancel ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(250),
+                cancellationSource.Token);
+
+            Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            if (cancel)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+            }
+
+            observation.AssertExitedAndDisposed();
+            Assert.NotNull(child);
+            Assert.True(child.WaitForExit(5000));
+        }
+        finally
+        {
+            CleanupChild(child, childProcessIdPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ExitedParentDoesNotWaitForSurvivingDescendant(bool cancel)
+    {
+        string childProcessIdPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pid");
+        using ProcessObservation observation = new();
+        using CancellationTokenSource cancellationSource = new();
+        Process? child = null;
+        try
+        {
+            Task runTask = new ProcessService(process =>
+            {
+                observation.Capture(process);
+                Assert.True(process.WaitForExit(5000));
+                Assert.Equal(0, process.ExitCode);
+                child = Process.GetProcessById(int.Parse(
+                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+                _ = child.SafeHandle;
+                if (cancel)
+                {
+                    cancellationSource.Cancel();
+                }
+            }).RunAsync(
+                CreateHelperCommand("spawn-child-and-exit", childProcessIdPath),
+                input: null,
+                OutputLimit,
+                TimeSpan.FromMilliseconds(250),
+                cancellationSource.Token);
+
+            Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            if (cancel)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+            }
+
+            observation.AssertExitedAndDisposed();
+            Assert.NotNull(child);
+            Assert.False(child.HasExited);
+        }
+        finally
+        {
+            CleanupChild(child, childProcessIdPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("stdout", "standard output")]
+    [InlineData("stderr", "standard error")]
+    public async Task RunAsync_OutputLimitTerminatesAndDisposesProcess(
+        string fixtureStream,
+        string expectedStreamName)
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand(
+            "output",
+            fixtureStream,
+            (OutputLimit + 1).ToString());
+        using ProcessObservation observation = new();
+
+        ProcessOutputLimitExceededException exception =
+            await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() =>
+                new ProcessService(observation.Capture).RunAsync(
+                    startInfo,
+                    input: null,
+                    OutputLimit,
+                    TimeSpan.FromSeconds(5),
+                    CancellationToken.None));
+
+        Assert.Equal(expectedStreamName, exception.StreamName);
+        Assert.Equal(OutputLimit, exception.Limit);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Fact]
+    public async Task RunAsync_AllowsOutputAtLimit()
+    {
+        ProcessStartInfo startInfo = CreateHelperCommand(
+            "output",
+            "stdout",
+            OutputLimit.ToString());
+
+        ProcessResult result = await new ProcessService().RunAsync(
             startInfo,
             input: null,
-            _ => { },
-            _ => { },
-            TimeSpan.FromSeconds(3),
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
             CancellationToken.None);
 
-        Assert.Equal(0, exitCode);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(OutputLimit, result.StandardOutput.Length);
+        Assert.Empty(result.StandardError);
     }
 
     [Fact]
     public async Task RunAsync_TimeoutIncludesBlockedInputWrite()
     {
-        ProcessStartInfo startInfo = CreateSleepCommand(TimeSpan.FromSeconds(30));
-        startInfo.RedirectStandardInput = true;
-        string input = new('x', 1024 * 1024);
-        int processId = 0;
+        ProcessStartInfo startInfo = CreateHelperCommand("wait");
+        string input = new('x', OutputLimit);
+        using ProcessObservation observation = new();
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         await Assert.ThrowsAsync<TimeoutException>(() =>
-            new ProcessService(process => processId = process.Id).RunAsync(
+            new ProcessService(observation.Capture).RunAsync(
                 startInfo,
                 input,
-                _ => { },
-                _ => { },
+                OutputLimit,
                 TimeSpan.FromMilliseconds(200),
                 CancellationToken.None));
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
-        AssertProcessExited(processId);
+        observation.AssertExitedAndDisposed();
     }
 
-    private static ProcessStartInfo CreateCommand(string command)
+    [Theory]
+    [InlineData("stdout", false, false)]
+    [InlineData("stdout", false, true)]
+    [InlineData("stdout", true, false)]
+    [InlineData("stdout", true, true)]
+    [InlineData("stderr", false, false)]
+    [InlineData("stderr", false, true)]
+    [InlineData("stderr", true, false)]
+    [InlineData("stderr", true, true)]
+    public async Task RunAsync_EnforcesUtf8ByteLimitIncludingBom(
+        string fixtureStream,
+        bool includeBom,
+        bool exceedsLimit)
     {
-        ProcessStartInfo startInfo = CreateStartInfo();
+        const string expectedOutput = "\u00fcser-\U0001F512\uFEFF";
+        string wireOutput = (includeBom ? "\uFEFF" : string.Empty) + expectedOutput;
+        int limit = Encoding.UTF8.GetByteCount(wireOutput) - (exceedsLimit ? 1 : 0);
+        ProcessStartInfo startInfo = CreateHelperCommand("utf8-output", fixtureStream, wireOutput);
+        startInfo.StandardOutputEncoding = Encoding.UTF8;
+        startInfo.StandardErrorEncoding = Encoding.UTF8;
+        using ProcessObservation observation = new();
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        Assert.True(wireOutput.Length < limit);
+        Task<ProcessResult> runTask = new ProcessService(observation.Capture).RunAsync(
+            startInfo,
+            input: null,
+            limit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        if (exceedsLimit)
         {
-            startInfo.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
-            startInfo.ArgumentList.Add("/d");
-            startInfo.ArgumentList.Add("/s");
-            startInfo.ArgumentList.Add("/c");
-            startInfo.ArgumentList.Add(command);
+            ProcessOutputLimitExceededException exception =
+                await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() => runTask);
+            Assert.Equal(fixtureStream == "stdout" ? "standard output" : "standard error", exception.StreamName);
+            Assert.Equal(limit, exception.Limit);
         }
         else
         {
-            startInfo.FileName = "/bin/sh";
-            startInfo.ArgumentList.Add("-c");
-            startInfo.ArgumentList.Add(command);
+            ProcessResult result = await runTask;
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal(fixtureStream == "stdout" ? expectedOutput : string.Empty, result.StandardOutput);
+            Assert.Equal(fixtureStream == "stderr" ? expectedOutput : string.Empty, result.StandardError);
         }
 
-        return startInfo;
+        observation.AssertExitedAndDisposed();
     }
 
-    private static ProcessStartInfo CreateSleepCommand(TimeSpan duration)
+    private static void CleanupChild(Process? child, string childProcessIdPath)
     {
-        ProcessStartInfo startInfo = CreateStartInfo();
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (child is null && File.Exists(childProcessIdPath))
         {
-            int pingCount = Math.Max(2, (int)Math.Ceiling(duration.TotalSeconds) + 1);
-            startInfo.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd.exe";
-            startInfo.ArgumentList.Add("/d");
-            startInfo.ArgumentList.Add("/s");
-            startInfo.ArgumentList.Add("/c");
-            startInfo.ArgumentList.Add($"ping 127.0.0.1 -n {pingCount} > nul");
+            child = Process.GetProcessById(int.Parse(
+                File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
         }
-        else
+        using (child)
         {
-            startInfo.FileName = "/bin/sh";
-            startInfo.ArgumentList.Add("-c");
-            startInfo.ArgumentList.Add($"sleep {duration.TotalSeconds}");
+            if (child is not null && !child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                Assert.True(child.WaitForExit(5000));
+            }
         }
-
-        return startInfo;
+        File.Delete(childProcessIdPath);
     }
 
-    private static ProcessStartInfo CreateStartInfo() =>
-        new()
+    private static ProcessStartInfo CreateHelperCommand(params string[] arguments)
+    {
+        string executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? "docker-credential-test.exe"
+            : "docker-credential-test";
+        ProcessStartInfo startInfo = new(Path.Combine(AppContext.BaseDirectory, executableName))
         {
             CreateNoWindow = true,
             UseShellExecute = false,
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
 
-    private static void AssertProcessExited(int processId)
-    {
-        Assert.NotEqual(0, processId);
-
-        try
+        foreach (string argument in arguments)
         {
-            using Process process = Process.GetProcessById(processId);
-            Assert.True(process.HasExited);
+            startInfo.ArgumentList.Add(argument);
         }
-        catch (ArgumentException)
+
+        return startInfo;
+    }
+
+    private static void AssertReaderDisposed(StreamReader? reader)
+    {
+        Assert.NotNull(reader);
+        Assert.Throws<ObjectDisposedException>(() => reader.Read());
+    }
+
+    private sealed class ProcessObservation : IDisposable
+    {
+        private Process? _original;
+        private Process? _independent;
+
+        public void Capture(Process process)
         {
+            _original = process;
+            _independent = Process.GetProcessById(process.Id);
+            // Open a handle before the helper can exit, avoiding PID reuse during assertions.
+            _ = _independent.SafeHandle;
+        }
+
+        public void AssertExitedAndDisposed()
+        {
+            Assert.NotNull(_independent);
+            Assert.True(_independent.WaitForExit(1000));
+            Assert.NotNull(_original);
+            Assert.Throws<InvalidOperationException>(() => _ = _original.SafeHandle);
+        }
+
+        public void AssertRunningAndDisposed()
+        {
+            Assert.NotNull(_independent);
+            Assert.False(_independent.HasExited);
+            Assert.NotNull(_original);
+            Assert.Throws<InvalidOperationException>(() => _ = _original.SafeHandle);
+        }
+
+        public void Dispose()
+        {
+            if (_independent is not null)
+            {
+                try
+                {
+                    if (!_independent.HasExited)
+                    {
+                        _independent.Kill(entireProcessTree: true);
+                        Assert.True(_independent.WaitForExit(5000));
+                    }
+                }
+                finally
+                {
+                    _independent.Dispose();
+                }
+            }
         }
     }
 }

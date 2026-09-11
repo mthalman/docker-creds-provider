@@ -42,8 +42,9 @@ public static class CredsProvider
     /// </exception>
     /// <exception cref="InvalidOperationException">
     /// A configuration value has an unexpected JSON type, or a native
-    /// credential helper cannot be located, executed, or returns an invalid
-    /// response.
+    /// credential helper cannot be located, executed, returns an invalid
+    /// response, or writes more than 1 MiB to either standard output or
+    /// standard error.
     /// </exception>
     /// <exception cref="TimeoutException">
     /// A native credential helper does not complete within its timeout.
@@ -85,8 +86,9 @@ public static class CredsProvider
     /// </exception>
     /// <exception cref="InvalidOperationException">
     /// A configuration value has an unexpected JSON type, or a native
-    /// credential helper cannot be located, executed, or returns an invalid
-    /// response.
+    /// credential helper cannot be located, executed, returns an invalid
+    /// response, or writes more than 1 MiB to either standard output or
+    /// standard error.
     /// </exception>
     /// <exception cref="OperationCanceledException">
     /// <paramref name="cancellationToken"/> is canceled.

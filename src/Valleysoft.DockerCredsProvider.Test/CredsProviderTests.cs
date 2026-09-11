@@ -122,8 +122,7 @@ public class CredsProviderTests
             .Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith($"docker-credential-{credsStore}")),
                 "test",
-                It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>(),
+                It.IsAny<int>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>()))
             .Throws(new Win32Exception(2));
@@ -268,6 +267,38 @@ public class CredsProviderTests
         AssertExceptionChainDoesNotContain(exception, SensitiveValue);
     }
 
+    [Theory]
+    [InlineData("standard output")]
+    [InlineData("standard error")]
+    public async Task NativeStore_OversizedOutputIsSanitized(string streamName)
+    {
+        Mock<IProcessService> processServiceMock = new();
+        processServiceMock
+            .Setup(o => o.RunAsync(
+                It.Is<ProcessStartInfo>(startInfo =>
+                    startInfo.CreateNoWindow &&
+                    !startInfo.UseShellExecute &&
+                    startInfo.RedirectStandardInput &&
+                    startInfo.RedirectStandardOutput &&
+                    startInfo.RedirectStandardError),
+                "test",
+                Valleysoft.DockerCredsProvider.NativeStore.HelperOutputLimit,
+                Valleysoft.DockerCredsProvider.NativeStore.HelperTimeout,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ProcessOutputLimitExceededException(
+                streamName,
+                Valleysoft.DockerCredsProvider.NativeStore.HelperOutputLimit));
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => GetNativeStoreCredentialsAsync(processServiceMock.Object));
+
+        Assert.Contains("docker-credential-desktop", exception.Message);
+        Assert.Contains(streamName, exception.Message);
+        Assert.Contains("1048576-byte", exception.Message);
+        Assert.Contains("Helper output was omitted", exception.Message);
+        processServiceMock.VerifyAll();
+    }
+
     [Fact]
     public async Task NativeStore_CallerCancellationIsPropagated()
     {
@@ -295,20 +326,18 @@ public class CredsProviderTests
             .Setup(o => o.RunAsync(
                 It.IsAny<ProcessStartInfo>(),
                 Registry,
-                It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>(),
+                Valleysoft.DockerCredsProvider.NativeStore.HelperOutputLimit,
                 Valleysoft.DockerCredsProvider.NativeStore.HelperTimeout,
                 cancellationSource.Token))
             .Returns(async (
                 ProcessStartInfo _,
                 string? _,
-                Action<string?> _,
-                Action<string?> _,
+                int _,
                 TimeSpan _,
                 CancellationToken cancellationToken) =>
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
-                return 0;
+                return new ProcessResult(0, string.Empty, string.Empty);
             });
 
         Task<DockerCredentials> getCredentialsTask = CredsProvider.GetCredentialsAsync(
@@ -348,8 +377,7 @@ public class CredsProviderTests
             .Setup(o => o.RunAsync(
                 It.IsAny<ProcessStartInfo>(),
                 Registry,
-                It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>(),
+                Valleysoft.DockerCredsProvider.NativeStore.HelperOutputLimit,
                 Valleysoft.DockerCredsProvider.NativeStore.HelperTimeout,
                 CancellationToken.None))
             .ThrowsAsync(new TimeoutException());
