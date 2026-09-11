@@ -59,6 +59,7 @@ Native credential helpers have a 30-second timeout; an expired timeout throws
 ## Contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the local build and test workflow.
+See [MAINTAINERS.md](MAINTAINERS.md) for release labeling and publishing.
 
 ## License
 
