@@ -54,15 +54,10 @@ public static class MockExtensions {
         mock.Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(fullName)),
                 It.IsIn(helperCommand),
-                It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>(),
+                It.IsAny<int>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>())
-            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived, TimeSpan timeout, CancellationToken cancellationToken) =>
-            {
-                outputDataReceived(output);
-            })
-            .ReturnsAsync(0);
+            ).ReturnsAsync(new ProcessResult(0, output + Environment.NewLine, string.Empty));
         return mock;
     }
 
@@ -76,23 +71,13 @@ public static class MockExtensions {
         mock.Setup(o => o.RunAsync(
                 It.Is<ProcessStartInfo>(startInfo => startInfo.FileName.EndsWith(fullName)),
                 helperCommand,
-                It.IsAny<Action<string?>>(),
-                It.IsAny<Action<string?>>(),
+                It.IsAny<int>(),
                 It.IsAny<TimeSpan>(),
                 It.IsAny<CancellationToken>())
-            ).Callback((ProcessStartInfo startInfo, string? input, Action<string?> outputDataReceived, Action<string?> errorDataReceived, TimeSpan timeout, CancellationToken cancellationToken) =>
-            {
-                if (output is not null)
-                {
-                    outputDataReceived(output);
-                }
-
-                if (errorOutput is not null)
-                {
-                    errorDataReceived(errorOutput);
-                }
-            })
-            .ReturnsAsync(1);
+            ).ReturnsAsync(new ProcessResult(
+                1,
+                output is null ? string.Empty : output + Environment.NewLine,
+                errorOutput is null ? string.Empty : errorOutput + Environment.NewLine));
         return mock;
     }
 
