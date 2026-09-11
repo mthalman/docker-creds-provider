@@ -42,6 +42,52 @@ public class ProcessServiceTests
     }
 
     [Fact]
+    public async Task RunAsync_DrainsBothStreamsBeforeHelperReadsInput()
+    {
+        using ProcessObservation observation = new();
+        string payload = new('x', OutputLimit);
+
+        ProcessResult result = await new ProcessService(observation.Capture).RunAsync(
+            CreateHelperCommand("pipe-pressure", OutputLimit.ToString(CultureInfo.InvariantCulture)),
+            payload,
+            OutputLimit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(payload, result.StandardOutput);
+        Assert.Equal(payload, result.StandardError);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Theory]
+    [InlineData("stdout", "standard output")]
+    [InlineData("stderr", "standard error")]
+    public async Task RunAsync_OutputOverflowTerminatesHelperWithBlockedInput(
+        string fixtureStream,
+        string expectedStreamName)
+    {
+        using ProcessObservation observation = new();
+        Task<ProcessResult> runTask = new ProcessService(observation.Capture).RunAsync(
+            CreateHelperCommand(
+                "overflow-blocked-input",
+                fixtureStream,
+                OutputLimit.ToString(CultureInfo.InvariantCulture)),
+            new string('x', OutputLimit),
+            OutputLimit,
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+
+        Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+        ProcessOutputLimitExceededException exception =
+            await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() => runTask);
+
+        Assert.Equal(expectedStreamName, exception.StreamName);
+        Assert.Equal(OutputLimit, exception.Limit);
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Fact]
     public async Task RunAsync_WritesInputAsUtf8()
     {
         ProcessStartInfo startInfo = CreateHelperCommand("get");
@@ -450,6 +496,58 @@ public class ProcessServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task RunAsync_TerminatesLiveParentAndDescendant(bool cancel)
+    {
+        string childProcessIdPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pid");
+        using ProcessObservation observation = new();
+        using CancellationTokenSource cancellationSource = new();
+        Process? child = null;
+        try
+        {
+            Task runTask = new ProcessService(process =>
+            {
+                observation.Capture(process);
+                Assert.Equal("ready", process.StandardOutput.ReadLineAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult());
+                child = Process.GetProcessById(int.Parse(
+                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+                _ = child.SafeHandle;
+                Assert.False(process.HasExited);
+                Assert.False(child.HasExited);
+                if (cancel)
+                {
+                    cancellationSource.Cancel();
+                }
+            }).RunAsync(
+                CreateHelperCommand("spawn-child", childProcessIdPath),
+                input: null,
+                OutputLimit,
+                cancel ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(250),
+                cancellationSource.Token);
+
+            Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            if (cancel)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+            }
+
+            observation.AssertExitedAndDisposed();
+            Assert.NotNull(child);
+            Assert.True(child.WaitForExit(5000));
+        }
+        finally
+        {
+            CleanupChild(child, childProcessIdPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task RunAsync_ExitedParentDoesNotWaitForSurvivingDescendant(bool cancel)
     {
         string childProcessIdPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pid");
@@ -493,20 +591,7 @@ public class ProcessServiceTests
         }
         finally
         {
-            if (child is null && File.Exists(childProcessIdPath))
-            {
-                child = Process.GetProcessById(int.Parse(
-                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
-            }
-            using (child)
-            {
-                if (child is not null && !child.HasExited)
-                {
-                    child.Kill(entireProcessTree: true);
-                    Assert.True(child.WaitForExit(5000));
-                }
-            }
-            File.Delete(childProcessIdPath);
+            CleanupChild(child, childProcessIdPath);
         }
     }
 
@@ -575,6 +660,72 @@ public class ProcessServiceTests
 
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
         observation.AssertExitedAndDisposed();
+    }
+
+    [Theory]
+    [InlineData("stdout", false, false)]
+    [InlineData("stdout", false, true)]
+    [InlineData("stdout", true, false)]
+    [InlineData("stdout", true, true)]
+    [InlineData("stderr", false, false)]
+    [InlineData("stderr", false, true)]
+    [InlineData("stderr", true, false)]
+    [InlineData("stderr", true, true)]
+    public async Task RunAsync_EnforcesUtf8ByteLimitIncludingBom(
+        string fixtureStream,
+        bool includeBom,
+        bool exceedsLimit)
+    {
+        const string expectedOutput = "\u00fcser-\U0001F512\uFEFF";
+        string wireOutput = (includeBom ? "\uFEFF" : string.Empty) + expectedOutput;
+        int limit = Encoding.UTF8.GetByteCount(wireOutput) - (exceedsLimit ? 1 : 0);
+        ProcessStartInfo startInfo = CreateHelperCommand("utf8-output", fixtureStream, wireOutput);
+        startInfo.StandardOutputEncoding = Encoding.UTF8;
+        startInfo.StandardErrorEncoding = Encoding.UTF8;
+        using ProcessObservation observation = new();
+
+        Assert.True(wireOutput.Length < limit);
+        Task<ProcessResult> runTask = new ProcessService(observation.Capture).RunAsync(
+            startInfo,
+            input: null,
+            limit,
+            TimeSpan.FromSeconds(5),
+            CancellationToken.None);
+
+        if (exceedsLimit)
+        {
+            ProcessOutputLimitExceededException exception =
+                await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() => runTask);
+            Assert.Equal(fixtureStream == "stdout" ? "standard output" : "standard error", exception.StreamName);
+            Assert.Equal(limit, exception.Limit);
+        }
+        else
+        {
+            ProcessResult result = await runTask;
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal(fixtureStream == "stdout" ? expectedOutput : string.Empty, result.StandardOutput);
+            Assert.Equal(fixtureStream == "stderr" ? expectedOutput : string.Empty, result.StandardError);
+        }
+
+        observation.AssertExitedAndDisposed();
+    }
+
+    private static void CleanupChild(Process? child, string childProcessIdPath)
+    {
+        if (child is null && File.Exists(childProcessIdPath))
+        {
+            child = Process.GetProcessById(int.Parse(
+                File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+        }
+        using (child)
+        {
+            if (child is not null && !child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                Assert.True(child.WaitForExit(5000));
+            }
+        }
+        File.Delete(childProcessIdPath);
     }
 
     private static ProcessStartInfo CreateHelperCommand(params string[] arguments)

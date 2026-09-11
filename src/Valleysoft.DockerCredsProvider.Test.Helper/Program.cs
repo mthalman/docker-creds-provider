@@ -16,6 +16,12 @@ return args switch
     ["child-wait"] => await WaitAsync(),
     ["output", string streamName, string byteCount] =>
         await WriteOutputAsync(streamName, int.Parse(byteCount, CultureInfo.InvariantCulture)),
+    ["pipe-pressure", string byteCount] =>
+        await ExercisePipesAsync(int.Parse(byteCount, CultureInfo.InvariantCulture)),
+    ["overflow-blocked-input", string streamName, string byteCount] =>
+        await ExercisePipesAsync(int.Parse(byteCount, CultureInfo.InvariantCulture), streamName),
+    ["utf8-output", string streamName, string output] =>
+        await WriteUtf8OutputAsync(streamName, output),
     _ => throw new ArgumentException("Unknown helper fixture command.")
 };
 
@@ -107,6 +113,8 @@ static int SpawnChild(string childProcessIdPath, bool exitParent)
         childProcess.Id.ToString(CultureInfo.InvariantCulture));
     if (!exitParent)
     {
+        Console.Out.WriteLine("ready");
+        Console.Out.Flush();
         Thread.Sleep(Timeout.Infinite);
     }
     return 0;
@@ -114,13 +122,7 @@ static int SpawnChild(string childProcessIdPath, bool exitParent)
 
 static async Task<int> WriteOutputAsync(string streamName, int byteCount)
 {
-    Stream stream = streamName switch
-    {
-        "stdout" => Console.OpenStandardOutput(),
-        "stderr" => Console.OpenStandardError(),
-        _ => throw new ArgumentException("Unknown output stream.", nameof(streamName))
-    };
-
+    Stream stream = OpenOutputStream(streamName);
     byte[] buffer = new byte[81920];
     Array.Fill(buffer, (byte)'x');
 
@@ -134,3 +136,38 @@ static async Task<int> WriteOutputAsync(string streamName, int byteCount)
     await stream.FlushAsync();
     return 0;
 }
+
+static async Task<int> ExercisePipesAsync(int byteCount, string? overflowStream = null)
+{
+    await Task.WhenAll(
+        WriteOutputAsync("stdout", byteCount + (overflowStream == "stdout" ? 1 : 0)),
+        WriteOutputAsync("stderr", byteCount + (overflowStream == "stderr" ? 1 : 0)));
+
+    if (overflowStream is not null)
+    {
+        return await WaitAsync();
+    }
+
+    string? input = await Console.In.ReadLineAsync();
+    if (input != new string('x', byteCount))
+    {
+        throw new InvalidOperationException("Helper did not receive the expected input.");
+    }
+
+    return 0;
+}
+
+static async Task<int> WriteUtf8OutputAsync(string streamName, string output)
+{
+    Stream stream = OpenOutputStream(streamName);
+    await stream.WriteAsync(Encoding.UTF8.GetBytes(output));
+    await stream.FlushAsync();
+    return 0;
+}
+
+static Stream OpenOutputStream(string streamName) => streamName switch
+{
+    "stdout" => Console.OpenStandardOutput(),
+    "stderr" => Console.OpenStandardError(),
+    _ => throw new ArgumentException("Unknown output stream.", nameof(streamName))
+};
