@@ -32,8 +32,8 @@ release behavior.
 ## Versioning and releases
 
 Package and assembly versions are derived from Git tags by
-[MinVer](https://github.com/adamralph/minver). Create a tag on the commit to
-release and push it to start the release workflow:
+[MinVer](https://github.com/adamralph/minver). The release workflow starts when
+you push a tag:
 
 - Stable release: `v1.2.3`
 - Prerelease: `v1.2.3-preview.1`
@@ -58,3 +58,71 @@ requests without a category appear under Maintenance.
 
 Published GitHub Releases are the release-note system of record; this repository
 does not maintain a `CHANGELOG.md`.
+
+## Configure trusted publishing
+
+Complete this setup before pushing the first release tag:
+
+1. Create a GitHub Actions environment named `nuget.org`.
+2. Configure required reviewers or other deployment protection rules. Allow
+   deployments from the intended `v*` tags, and restrict who can create, update,
+   or delete release tags through repository rulesets.
+3. Confirm that the NuGet.org account `thalman` owns, or has permission to
+   publish, `Valleysoft.DockerCredsProvider`. The workflow's `NuGet/login` action
+   uses this account.
+4. Add a [NuGet.org trusted-publishing policy](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)
+   with these values:
+
+   | Setting | Value |
+   | --- | --- |
+   | Repository owner | `mthalman` |
+   | Repository | `docker-creds-provider` |
+   | Workflow file | `release.yml` (filename only) |
+   | Environment | `nuget.org` |
+   | Package scope | `Valleysoft.DockerCredsProvider` |
+
+   Select the package owner and allow publication of new versions. The
+   environment in the policy must match the GitHub environment.
+5. After configuring trusted publishing, remove the obsolete
+   `NUGET_ORG_API_KEY` repository secret.
+
+Only the protected publishing job can request an OpenID Connect (OIDC) token.
+`NuGet/login` exchanges that token for a short-lived API key immediately before
+the package pushes. No long-lived NuGet API key is needed.
+
+## Publish a release
+
+Before starting, complete the trusted-publishing setup and confirm that the
+Release Drafter draft contains the intended changes and proposes the correct
+version.
+
+1. Create the tag on the intended release commit:
+
+   ```shell
+   git tag v1.2.3 <commit>
+   ```
+
+2. Push the tag:
+
+   ```shell
+   git push origin v1.2.3
+   ```
+
+3. Approve the deployment to `nuget.org` if GitHub requests approval.
+4. Confirm that the workflow succeeds, NuGet.org lists the intended version
+   and accepts its symbols, and the corresponding GitHub Release contains
+   both the `.nupkg` and `.snupkg` attachments.
+
+The workflow builds and tests the tagged commit, packs once without rebuilding,
+and fails if the tag does not match the MinVer package filename. It retains the
+package and symbols as workflow artifacts for one day.
+
+The protected publishing job downloads those artifacts without rebuilding. It
+reuses an existing published GitHub Release for the tag, or requires exactly one
+draft release. After pushing to NuGet.org, it publishes that draft with the
+release tag and attaches the package and symbols. NuGet pushes skip duplicates,
+and GitHub attachment uploads replace same-named assets on reruns.
+
+Tags such as `v1.2.3-preview.1` produce prerelease GitHub Releases that are not
+marked latest. Stable releases are marked latest. Rerunning an already
+published release does not change its notes or latest status.
