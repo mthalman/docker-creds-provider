@@ -103,11 +103,34 @@ internal sealed class RegistryReference
                         StringComparison.OrdinalIgnoreCase)));
     }
 
-    private JsonProperty? FindContainersAuth(JsonElement auths) =>
-        FindOrdinalProperty(auths, ContainersKey) ??
-        FindOrdinalProperty(auths, NormalizedContainersKey) ??
-        FindOrdinalProperty(auths, Authority) ??
-        FindNormalizedContainersAuth(auths);
+    private JsonProperty? FindContainersAuth(JsonElement auths)
+    {
+        JsonProperty? exactProperty = FindOrdinalProperty(auths, ContainersKey);
+        if (exactProperty is not null)
+        {
+            return exactProperty;
+        }
+
+        string candidate = NormalizedContainersKey;
+        while (true)
+        {
+            JsonProperty? property = FindOrdinalProperty(auths, candidate);
+            if (property is not null)
+            {
+                return property;
+            }
+
+            int separatorIndex = candidate.LastIndexOf('/');
+            if (separatorIndex < 0)
+            {
+                break;
+            }
+
+            candidate = candidate.Substring(0, separatorIndex);
+        }
+
+        return FindNormalizedContainersAuth(auths);
+    }
 
     private static JsonProperty? FindExactProperty(JsonElement properties, string key)
     {
