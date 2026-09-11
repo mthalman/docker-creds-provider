@@ -11,7 +11,8 @@ return args switch
     ["success"] => await WriteSuccessAsync(),
     ["failure"] => await WriteFailureAsync(),
     ["wait"] => await WaitAsync(),
-    ["spawn-child", string childProcessIdPath] => SpawnChild(childProcessIdPath),
+    ["spawn-child", string childProcessIdPath] => SpawnChild(childProcessIdPath, exitParent: false),
+    ["spawn-child-and-exit", string childProcessIdPath] => SpawnChild(childProcessIdPath, exitParent: true),
     ["child-wait"] => await WaitAsync(),
     ["output", string streamName, string byteCount] =>
         await WriteOutputAsync(streamName, int.Parse(byteCount, CultureInfo.InvariantCulture)),
@@ -90,7 +91,7 @@ static async Task<int> WaitAsync()
     return 0;
 }
 
-static int SpawnChild(string childProcessIdPath)
+static int SpawnChild(string childProcessIdPath, bool exitParent)
 {
     using Process childProcess = Process.Start(new ProcessStartInfo(
         Environment.ProcessPath
@@ -104,7 +105,10 @@ static int SpawnChild(string childProcessIdPath)
     File.WriteAllText(
         childProcessIdPath,
         childProcess.Id.ToString(CultureInfo.InvariantCulture));
-    Thread.Sleep(Timeout.Infinite);
+    if (!exitParent)
+    {
+        Thread.Sleep(Timeout.Infinite);
+    }
     return 0;
 }
 

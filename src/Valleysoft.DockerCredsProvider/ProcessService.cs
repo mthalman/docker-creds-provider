@@ -357,6 +357,8 @@ internal class ProcessService : IProcessService
         List<IDisposable> pipeHandles,
         Exception failure)
     {
+        // Best-effort termination cannot recover descendants once the direct helper has exited.
+        // Do not wait for their inherited pipes; returning the original failure must remain bounded.
         if (!exitTask.IsCompleted && TryTerminate(process))
         {
             await Task.WhenAny(

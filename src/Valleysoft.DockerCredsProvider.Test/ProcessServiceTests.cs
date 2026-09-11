@@ -448,6 +448,69 @@ public class ProcessServiceTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ExitedParentDoesNotWaitForSurvivingDescendant(bool cancel)
+    {
+        string childProcessIdPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.pid");
+        using ProcessObservation observation = new();
+        using CancellationTokenSource cancellationSource = new();
+        Process? child = null;
+        try
+        {
+            Task runTask = new ProcessService(process =>
+            {
+                observation.Capture(process);
+                Assert.True(process.WaitForExit(5000));
+                Assert.Equal(0, process.ExitCode);
+                child = Process.GetProcessById(int.Parse(
+                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+                _ = child.SafeHandle;
+                if (cancel)
+                {
+                    cancellationSource.Cancel();
+                }
+            }).RunAsync(
+                CreateHelperCommand("spawn-child-and-exit", childProcessIdPath),
+                input: null,
+                OutputLimit,
+                TimeSpan.FromMilliseconds(250),
+                cancellationSource.Token);
+
+            Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            if (cancel)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask);
+            }
+            else
+            {
+                await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+            }
+
+            observation.AssertExitedAndDisposed();
+            Assert.NotNull(child);
+            Assert.False(child.HasExited);
+        }
+        finally
+        {
+            if (child is null && File.Exists(childProcessIdPath))
+            {
+                child = Process.GetProcessById(int.Parse(
+                    File.ReadAllText(childProcessIdPath), CultureInfo.InvariantCulture));
+            }
+            using (child)
+            {
+                if (child is not null && !child.HasExited)
+                {
+                    child.Kill(entireProcessTree: true);
+                    Assert.True(child.WaitForExit(5000));
+                }
+            }
+            File.Delete(childProcessIdPath);
+        }
+    }
+
+    [Theory]
     [InlineData("stdout", "standard output")]
     [InlineData("stderr", "standard error")]
     public async Task RunAsync_OutputLimitTerminatesAndDisposesProcess(
