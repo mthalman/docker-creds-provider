@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 
 Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -10,6 +12,8 @@ return args switch
     ["get"] => await GetCredentialsAsync(),
     ["success"] => await WriteSuccessAsync(),
     ["failure"] => await WriteFailureAsync(),
+    ["closed-input", string releasePath, string outcome] =>
+        await CloseInputBeforeExitAsync(releasePath, outcome),
     ["wait"] => await WaitAsync(),
     ["spawn-child", string childProcessIdPath] => SpawnChild(childProcessIdPath, exitParent: false),
     ["spawn-child-and-exit", string childProcessIdPath] => SpawnChild(childProcessIdPath, exitParent: true),
@@ -165,6 +169,39 @@ static async Task<int> WaitAsync()
     return 0;
 }
 
+static async Task<int> CloseInputBeforeExitAsync(string releasePath, string outcome)
+{
+    // Console.OpenStandardInput() does not own the OS handle; disposing it leaves the pipe open.
+    bool closed = OperatingSystem.IsWindows()
+        ? NativeMethods.CloseHandle(NativeMethods.GetStdHandle(-10))
+        : NativeMethods.Close(0) == 0;
+    if (!closed)
+    {
+        throw new Win32Exception(Marshal.GetLastPInvokeError());
+    }
+
+    Console.Out.WriteLine("ready");
+    Console.Out.Flush();
+    while (!File.Exists(releasePath))
+    {
+        await Task.Delay(10);
+    }
+
+    if (outcome is "stdout" or "stderr")
+    {
+        await WriteOutputAsync(outcome, 1024 * 1024 + 1);
+        return await WaitAsync();
+    }
+
+    int exitCode = await WriteFailureAsync();
+    return outcome switch
+    {
+        "success" => 0,
+        "failure" => exitCode,
+        _ => throw new ArgumentException("Unknown closed-input outcome.", nameof(outcome))
+    };
+}
+
 static int SpawnChild(string childProcessIdPath, bool exitParent)
 {
     using Process childProcess = Process.Start(new ProcessStartInfo(
@@ -239,3 +276,16 @@ static Stream OpenOutputStream(string streamName) => streamName switch
     "stderr" => Console.OpenStandardError(),
     _ => throw new ArgumentException("Unknown output stream.", nameof(streamName))
 };
+
+internal static class NativeMethods
+{
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr GetStdHandle(int standardHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+    internal static extern int Close(int fileDescriptor);
+}

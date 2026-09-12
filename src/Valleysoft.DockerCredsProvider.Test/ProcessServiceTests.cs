@@ -242,6 +242,123 @@ public class ProcessServiceTests
         observation.AssertExitedAndDisposed();
     }
 
+    [Theory]
+    [InlineData("success", 0, 20)]
+    [InlineData("success", 0, OutputLimit)]
+    [InlineData("failure", 17, 20)]
+    [InlineData("failure", 17, OutputLimit)]
+    public async Task RunAsync_ClosedInputWaitsForNaturalExit(string outcome, int exitCode, int inputLength)
+    {
+        string releasePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.release");
+        using ProcessObservation observation = new();
+        int terminationAttempts = 0;
+        try
+        {
+            Task<ProcessResult> runTask = new ProcessService(
+                process => ObserveClosedInputHelper(process, observation),
+                process =>
+                {
+                    terminationAttempts++;
+                    process.Kill(entireProcessTree: true);
+                    return true;
+                }).RunAsync(
+                    CreateHelperCommand("closed-input", releasePath, outcome),
+                    new string('x', inputLength),
+                    OutputLimit,
+                    TimeSpan.FromSeconds(5),
+                    CancellationToken.None);
+
+            // Hold the helper alive after closing stdin, rather than relying on exit/pipe scheduling.
+            Task observationWindow = Task.Delay(TimeSpan.FromMilliseconds(250));
+            Assert.Same(observationWindow, await Task.WhenAny(runTask, observationWindow));
+            File.WriteAllText(releasePath, "release");
+
+            ProcessResult result = await runTask;
+            Assert.Equal(exitCode, result.ExitCode);
+            Assert.Equal("fixture-stdout-secret", result.StandardOutput);
+            Assert.Equal("fixture-stderr-secret", result.StandardError);
+            Assert.Equal(0, terminationAttempts);
+            observation.AssertExitedAndDisposed();
+        }
+        finally
+        {
+            File.Delete(releasePath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ClosedInputDoesNotPreventTimeoutOrCancellation(bool cancel)
+    {
+        string releasePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.release");
+        using ProcessObservation observation = new();
+        using CancellationTokenSource cancellationSource = new();
+        Task<ProcessResult> runTask = new ProcessService(process =>
+        {
+            ObserveClosedInputHelper(process, observation);
+            if (cancel)
+            {
+                cancellationSource.CancelAfter(TimeSpan.FromMilliseconds(250));
+            }
+        }).RunAsync(
+            CreateHelperCommand("closed-input", releasePath, "failure"),
+            new string('x', OutputLimit),
+            OutputLimit,
+            cancel ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(250),
+            cancellationSource.Token);
+
+        Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+        if (cancel)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+        }
+        observation.AssertExitedAndDisposed();
+    }
+
+    [Theory]
+    [InlineData("stdout", "standard output")]
+    [InlineData("stderr", "standard error")]
+    public async Task RunAsync_ClosedInputDoesNotHideOutputOverflow(string streamName, string expectedStreamName)
+    {
+        string releasePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.release");
+        using ProcessObservation observation = new();
+        try
+        {
+            Task<ProcessResult> runTask = new ProcessService(
+                process => ObserveClosedInputHelper(process, observation)).RunAsync(
+                    CreateHelperCommand("closed-input", releasePath, streamName),
+                    new string('x', OutputLimit),
+                    OutputLimit,
+                    TimeSpan.FromSeconds(30),
+                    CancellationToken.None);
+            File.WriteAllText(releasePath, "release");
+
+            Assert.Same(runTask, await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))));
+            ProcessOutputLimitExceededException exception =
+                await Assert.ThrowsAsync<ProcessOutputLimitExceededException>(() => runTask);
+            Assert.Equal(expectedStreamName, exception.StreamName);
+            Assert.Equal(OutputLimit, exception.Limit);
+            observation.AssertExitedAndDisposed();
+        }
+        finally
+        {
+            File.Delete(releasePath);
+        }
+    }
+
+    private static void ObserveClosedInputHelper(Process process, ProcessObservation observation)
+    {
+        observation.Capture(process);
+        Assert.Equal("ready", process.StandardOutput.ReadLineAsync()
+            .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult());
+        Assert.False(process.HasExited);
+    }
+
     [Fact]
     public async Task RunAsync_CallerCancellationTerminatesAndDisposesProcess()
     {

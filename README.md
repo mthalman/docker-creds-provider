@@ -42,6 +42,11 @@ Prefer [credential helpers](https://docs.docker.com/reference/cli/docker/login/#
 over inline credentials: Base64 is not encryption. Never commit or log
 passwords or identity tokens.
 
+If a credential helper closes its input pipe before exiting, the library waits
+for its exit code and drains its output instead of treating the closed pipe as
+an immediate failure. The helper timeout, cancellation, and output limits still
+apply while waiting.
+
 ## Contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the local build and test workflow.
