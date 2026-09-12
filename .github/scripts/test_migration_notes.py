@@ -56,6 +56,16 @@ class MigrationFormatTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, heading):
                     validate_fragment(".changes/+helper-errors.breaking.md", text)
 
+    def test_required_sections_must_follow_documented_order(self):
+        title, *sections = NOTE.split("\n#### ")
+        for index in range(len(sections) - 1):
+            with self.subTest(first=REQUIRED_HEADINGS[index]):
+                reordered = sections.copy()
+                reordered[index], reordered[index + 1] = reordered[index + 1], reordered[index]
+                text = "\n#### ".join([title, *reordered])
+                with self.assertRaisesRegex(ValueError, "required sections must appear in this order"):
+                    validate_fragment(".changes/+helper-errors.breaking.md", text)
+
     def test_each_required_section_must_have_completed_content(self):
         for heading in REQUIRED_HEADINGS:
             before, separator, after = NOTE.partition(f"#### {heading}\n")
@@ -85,6 +95,17 @@ class MigrationFormatTests(unittest.TestCase):
 class FragmentSectionTests(unittest.TestCase):
     def validate(self, text):
         validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_required_heading_order_ignores_fenced_examples(self):
+        for fence in ("```", "~~~"):
+            with self.subTest(fence=fence):
+                headings = "\n".join(f"#### {heading}" for heading in reversed(REQUIRED_HEADINGS))
+                text = NOTE.replace(
+                    "#### Previous behavior",
+                    f"{fence}markdown\n{headings}\n{fence}\n\n#### Previous behavior",
+                    1,
+                )
+                self.validate(text)
 
     def test_nested_before_and_after_headings_are_valid(self):
         text = NOTE.replace(
@@ -494,6 +515,14 @@ class MigrationGuideTests(unittest.TestCase):
                 release["body"] = release["body"].replace(f"#### {heading}", f"#### Omitted {heading}")
                 with self.assertRaisesRegex(ValueError, heading):
                     guide_documents([release], "owner/repo")
+
+    def test_published_topics_require_documented_section_order(self):
+        title, *sections = NOTE.split("\n#### ")
+        reordered = "\n#### ".join([title, sections[-1], *sections[:-1]])
+        release = self.release()
+        release["body"] = release["body"].replace(NOTE, reordered)
+        with self.assertRaisesRegex(ValueError, "required sections must appear in this order"):
+            guide_documents([release], "owner/repo")
 
     def test_invalid_published_topic_does_not_write_partial_guides(self):
         invalid = self.release("v4.0.0")

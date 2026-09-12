@@ -38,11 +38,12 @@ def changed_files(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
     return list(zip(entries[0:-1:2], entries[1:-1:2]))
 
 
-def section_content(text: str, title: str) -> str:
+def find_section(text: str, title: str) -> tuple[int, str]:
     content = []
+    position = -1
     active = False
     fence = ""
-    for raw_line in text.splitlines(keepends=True):
+    for line_number, raw_line in enumerate(text.splitlines(keepends=True)):
         line = raw_line.rstrip("\r\n")
         if fence:
             if active:
@@ -62,11 +63,12 @@ def section_content(text: str, title: str) -> str:
                 break
             heading_title = re.sub(r"[ \t]+#+[ \t]*$", "", heading[2] or "").strip()
             if len(heading[1]) == 4 and heading_title == title:
+                position = line_number
                 active = True
                 continue
         if active:
             content.append(raw_line)
-    return "".join(content)
+    return position, "".join(content)
 
 
 def validate_fragment(name: str, text: str) -> None:
@@ -81,11 +83,18 @@ def validate_fragment(name: str, text: str) -> None:
         raise ValueError(f"{name}: migration fragment contains a reserved release-note marker.")
     if not re.match(r"### [^\n]+\n", text):
         raise ValueError(f"{name}: migration fragment must start with a level-three title.")
+    positions = []
     for heading in REQUIRED_SECTIONS:
-        section = section_content(text, heading)
+        position, section = find_section(text, heading)
         content = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL).strip()
         if not content or content.upper().rstrip(".") in ("TODO", "TBD", "N/A"):
             raise ValueError(f"{name}: migration fragment needs a completed '#### {heading}' section.")
+        positions.append(position)
+    if positions != sorted(positions):
+        raise ValueError(
+            f"{name}: required sections must appear in this order: "
+            + ", ".join(REQUIRED_SECTIONS) + "."
+        )
 
 
 def check_pr(repo: Path, base: str, head: str, labels: list[str]) -> None:

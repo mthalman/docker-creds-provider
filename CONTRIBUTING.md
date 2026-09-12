@@ -108,13 +108,13 @@ provides the version context, and generated topic documents include
 
 The **Validate migration notes** check requires a new fragment for major PRs,
 rejects `skip-changelog` on those PRs, and validates the filename and required
-sections of every added or edited fragment, including on non-major PRs. It
-rejects empty sections, bare TODO/TBD/N/A placeholders, and reserved
+sections and their order in every added or edited fragment, including on
+non-major PRs. It rejects empty sections, bare TODO/TBD/N/A placeholders, and reserved
 `migration-notes` start/end and `migration-topic` markers. The same section
 validation runs on published topics before generating versioned guides.
 Indexes are navigation pages, not migration topics, and do not use this format.
 Reviewers must still check technical accuracy, compatibility classification,
-affected-API coverage, section order, and completeness; tooling does not infer
+affected-API coverage, and completeness; tooling does not infer
 instructions from code.
 
 The policy runs the validator from the PR's base revision and reads PR commits
