@@ -146,20 +146,22 @@ standard. GitHub Releases remain this repository's changelog.
 ### Preview migration notes
 
 [Towncrier](https://towncrier.readthedocs.io/) is release tooling only; it does
-not change .NET package versions or publish anything. Install Python 3.13 and
-the pinned dependency, then run from the repository root:
-
-```console
-python -m pip install -r .github/scripts/requirements.txt
-python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
-python .github/scripts/migration_notes.py render --base v2.3.0 --head HEAD
-```
+not change .NET package versions or publish anything. Install Python 3.13.
 
 Replace `v2.3.0` with the previous published release tag. Commit your fragment
 before previewing: the helper reads the selected commit, not uncommitted files.
 It renders only fragments absent from that release and present at `HEAD`.
 The tag must exist locally and be an ancestor of `HEAD`. Missing or unrelated
 release history is an error, not a reason to include old notes.
+
+From the repository root, install the pinned dependency, run the checks, and
+render the preview:
+
+```console
+python -m pip install -r .github/scripts/requirements.txt
+python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
+python .github/scripts/migration_notes.py render --base v2.3.0 --head HEAD
+```
 
 The helper stages those fragments in a temporary directory and runs Towncrier
 in `--draft` mode. It does not delete fragments, create tags, or alter the

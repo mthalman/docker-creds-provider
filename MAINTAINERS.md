@@ -59,14 +59,21 @@ requests without a category appear under Maintenance.
 Published GitHub Releases are the release-note system of record; this repository
 does not maintain a `CHANGELOG.md`.
 
-### Automate breaking-change migration notes
+### Enable migration automation
 
-Require the **Validate migration notes** status check in the `main` branch
-ruleset so a `semver:major` PR cannot merge without its migration fragment.
-For initial setup, merge the policy workflow into `main` before requiring its
-status check: a new `pull_request_target` workflow does not run from an
-unmerged PR. For existing PRs, trigger a new event, such as a label change or
-code update, after the workflow is available.
+Complete this setup to enforce migration notes and generate documentation PRs:
+
+1. Merge the migration workflows into `main`. The policy workflow uses
+   `pull_request_target`, so it cannot run from an unmerged setup PR.
+2. Enable **Allow GitHub Actions to create and approve pull requests** in the
+   repository's Actions settings. No additional token is needed.
+3. Trigger a PR event, such as a label change or code update, and confirm that
+   **Validate migration notes** runs. Existing PRs need a new event after the
+   policy workflow is available on `main`.
+4. Require the **Validate migration notes** status check in the `main` branch
+   ruleset so a `semver:major` PR cannot merge without its migration fragment.
+
+### Automate breaking-change migration notes
 
 The **Migration note policy** workflow reruns on label changes as well as code
 changes. It uses `pull_request_target` so the workflow itself is trusted, checks
@@ -120,10 +127,11 @@ release notes remain the record for that version. Changes to old fragments do
 not update published releases automatically.
 
 Manual additions to the draft body are still overwritten. Make migration
-corrections in their source fragments and rerun **Release Drafter** (or merge
-the correction to trigger it). Before tagging, confirm the final draft workflow
-completed successfully and contains the expected notes. This automation does
-not create tags, publish releases, or change MinVer's version calculation.
+corrections in their source fragments and merge them into `main`. The merge
+triggers **Release Drafter**. Manual runs also read `main`, not an unmerged
+branch. Before tagging, confirm the final draft workflow completed successfully
+and contains the expected notes. This automation does not create tags, publish
+releases, or change MinVer's version calculation.
 
 ### Archive guides by release version
 
@@ -153,10 +161,8 @@ before a later package-attachment step failed. It reads only published release
 metadata and checks out trusted `main`; it never executes the release tag or
 downloads triggering-run artifacts.
 
-Enable **Allow GitHub Actions to create and approve pull requests** in the
-repository's Actions settings. No additional token is needed. PRs created or
-updated with `GITHUB_TOKEN` can start approval-required workflow runs for the
-`opened`, `synchronize`, and `reopened` events. A maintainer can select
+PRs created or updated with `GITHUB_TOKEN` can start approval-required workflow
+runs for the `opened`, `synchronize`, and `reopened` events. A maintainer can select
 **Approve workflows to run** on the PR; see
 [GitHub's workflow-triggering rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
 
