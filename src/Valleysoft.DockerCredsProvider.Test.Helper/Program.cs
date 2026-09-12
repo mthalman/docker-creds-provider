@@ -27,6 +27,11 @@ return args switch
 
 static async Task<int> GetCredentialsAsync()
 {
+    if (Environment.GetEnvironmentVariable("DOCKER_CREDS_TEST_SCENARIO") is string scenario)
+    {
+        return await RunProtocolScenarioAsync(scenario);
+    }
+
     string? registry = await Console.In.ReadLineAsync();
 
     switch (registry)
@@ -61,6 +66,19 @@ static async Task<int> GetCredentialsAsync()
         case "missing-secret":
             await Console.Out.WriteAsync("{\"Username\":\"fixture-user\"}");
             return 0;
+        case "null-username":
+            await Console.Out.WriteAsync("{\"Username\":null,\"Secret\":\"fixture-secret\"}");
+            return 0;
+        case "null-secret":
+            await Console.Out.WriteAsync("{\"Username\":\"fixture-user\",\"Secret\":null}");
+            return 0;
+        case "numeric-username":
+            await Console.Out.WriteAsync("{\"Username\":42,\"Secret\":\"fixture-secret\"}");
+            return 0;
+        case "object-secret":
+            await Console.Out.WriteAsync(
+                "{\"Username\":\"fixture-user\",\"Secret\":{\"value\":\"fixture-secret\"}}");
+            return 0;
         case "malformed":
             await Console.Out.WriteAsync(
                 "{\"Username\":\"fixture-user\",\"Secret\":\"fixture-secret\"");
@@ -74,6 +92,56 @@ static async Task<int> GetCredentialsAsync()
             await Console.Error.WriteAsync("unknown fixture registry");
             return 2;
     }
+}
+
+static async Task<int> RunProtocolScenarioAsync(string scenario)
+{
+    using MemoryStream input = new();
+    await Console.OpenStandardInput().CopyToAsync(input);
+
+    if (Environment.GetEnvironmentVariable("DOCKER_CREDS_TEST_READY") is string readyPath)
+    {
+        File.WriteAllText(readyPath, "ready");
+        string releasePath = Environment.GetEnvironmentVariable("DOCKER_CREDS_TEST_RELEASE")
+            ?? throw new InvalidOperationException("Missing fixture release path.");
+        while (!File.Exists(releasePath))
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    if (scenario is "overflow-stdout" or "overflow-stderr")
+    {
+        string streamName = scenario == "overflow-stdout" ? "stdout" : "stderr";
+        await WriteUtf8OutputAsync(streamName, "fixture-overflow-secret");
+        return await WriteOutputAsync(streamName, 1024 * 1024);
+    }
+
+    if (scenario is not ("protocol" or "chunked"))
+    {
+        throw new ArgumentException("Unknown protocol scenario.", nameof(scenario));
+    }
+
+    string username = Convert.ToBase64String(input.ToArray());
+    byte[] response = Encoding.UTF8.GetBytes(
+        $"{{\"Username\":\"{username}\",\"Secret\":\"fixture-\u00e4-\U0001F512:{username}\"}}");
+    Stream output = Console.OpenStandardOutput();
+    if (scenario == "chunked")
+    {
+        for (int index = 0; index < response.Length; index++)
+        {
+            await output.WriteAsync(response.AsMemory(index, 1));
+            await output.FlushAsync();
+            // Separate writes also split UTF-8 code points across pipe reads.
+            await Task.Delay(1);
+        }
+    }
+    else
+    {
+        await output.WriteAsync(response);
+        await output.FlushAsync();
+    }
+    return 0;
 }
 
 static async Task<int> WriteSuccessAsync()

@@ -6,6 +6,8 @@ namespace Valleysoft.DockerCredsProvider.Test;
 
 public class RegistryMatchingTests
 {
+    private readonly IEnvironment _defaultEnvironmentMock = new Mock<IEnvironment>().WithTestEnvironment().Object;
+
     [Theory]
     [InlineData("registry.example.com", "registry.example.com")]
     [InlineData("registry.example.com/team/image", "registry.example.com")]
@@ -145,19 +147,20 @@ public class RegistryMatchingTests
                 environment.Object));
     }
 
-    [Fact]
-    public async Task DockerInlineAuthPrefersCanonicalKeyRegardlessOfPropertyOrder()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DockerInlineAuthPrefersCanonicalKeyRegardlessOfPropertyOrder(bool canonicalFirst)
     {
         const string Registry = "registry.example.com";
         string legacyAuth = EncodeCredentials("legacy-user");
         string canonicalAuth = EncodeCredentials("canonical-user");
-        string config =
-            "{" +
-                "\"auths\": {" +
-                    $"\"https://registry.example.com/v1/\": {{ \"auth\": \"{legacyAuth}\" }}," +
-                    $"\"registry.example.com\": {{ \"auth\": \"{canonicalAuth}\" }}" +
-                "}" +
-            "}";
+        string legacyEntry = $"\"https://registry.example.com/v1/\": {{ \"auth\": \"{legacyAuth}\" }}";
+        string canonicalEntry = $"\"registry.example.com\": {{ \"auth\": \"{canonicalAuth}\" }}";
+        string entries = canonicalFirst
+            ? $"{canonicalEntry},{legacyEntry}"
+            : $"{legacyEntry},{canonicalEntry}";
+        string config = $"{{ \"auths\": {{ {entries} }} }}";
 
         DockerCredentials credentials = await GetCredentialsFromConfigAsync(
             Registry,
@@ -367,8 +370,10 @@ public class RegistryMatchingTests
                 environment.Object));
     }
 
-    [Fact]
-    public async Task InlineAuthUsesLastDuplicateKey()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InlineAuthUsesLastDuplicateKey(bool useDockerConfig)
     {
         const string Registry = "registry.example.com";
         string oldAuth = EncodeCredentials("old-user");
@@ -384,7 +389,7 @@ public class RegistryMatchingTests
         DockerCredentials credentials = await GetCredentialsFromConfigAsync(
             Registry,
             config,
-            RegistryConfigFormat.Containers);
+            useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers);
 
         Assert.Equal("new-user", credentials.Username);
     }
@@ -459,8 +464,10 @@ public class RegistryMatchingTests
         processService.VerifyAll();
     }
 
-    [Fact]
-    public async Task CredentialHelperUsesLastDuplicateKey()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CredentialHelperUsesLastDuplicateKey(bool useDockerConfig)
     {
         const string Registry = "registry.example.com";
         const string Helper = "new-helper";
@@ -472,7 +479,7 @@ public class RegistryMatchingTests
                 "}" +
             "}";
         (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) =
-            CreateConfig(config, RegistryConfigFormat.Docker);
+            CreateConfig(config, useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers);
         AddCredentialHelper(fileSystem, environment, Helper);
 
         Mock<IProcessService> processService = new();
@@ -552,19 +559,20 @@ public class RegistryMatchingTests
                 environment.Object));
     }
 
-    [Fact]
-    public async Task ContainersCredentialHelperMatchesOnlyRegistryScope()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ContainersCredentialHelperMatchesOnlyRegistryScope(bool registryFirst)
     {
         const string Registry = "registry.example.com/team/image";
         const string ConfiguredRegistry = "registry.example.com";
         const string Helper = "example";
-        string config =
-            "{" +
-                "\"credHelpers\": {" +
-                    $"\"{ConfiguredRegistry}\": \"{Helper}\"," +
-                    $"\"{Registry}\": \"namespace-helper\"" +
-                "}" +
-            "}";
+        string registryEntry = $"\"{ConfiguredRegistry}\": \"{Helper}\"";
+        string namespaceEntry = $"\"{Registry}\": \"namespace-helper\"";
+        string entries = registryFirst
+            ? $"{registryEntry},{namespaceEntry}"
+            : $"{namespaceEntry},{registryEntry}";
+        string config = $"{{ \"credHelpers\": {{ {entries} }} }}";
         (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) =
             CreateConfig(config, RegistryConfigFormat.Containers);
         AddCredentialHelper(fileSystem, environment, Helper);
@@ -583,6 +591,109 @@ public class RegistryMatchingTests
 
         Assert.Equal("helper-user", credentials.Username);
         processService.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData(true, "registry.example.com:5000", "registry.example.com")]
+    [InlineData(false, "registry.example.com:5000", "registry.example.com")]
+    [InlineData(true, "registry.example.com", "registry.example.com:5000")]
+    [InlineData(false, "registry.example.com", "registry.example.com:5000")]
+    [InlineData(true, "registry.example.com:5000", "registry.example.com:5001")]
+    [InlineData(false, "registry.example.com:5000", "registry.example.com:5001")]
+    [InlineData(true, "registry.example.com:443", "https://registry.example.com")]
+    [InlineData(false, "registry.example.com:443", "https://registry.example.com")]
+    [InlineData(true, "[::1]:5000", "[::1]:5001")]
+    [InlineData(false, "[::1]:5000", "[::1]:5001")]
+    public async Task InlineAuthDoesNotCrossPortBoundaries(
+        bool useDockerConfig,
+        string requestedRegistry,
+        string configuredRegistry)
+    {
+        RegistryConfigFormat format = useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers;
+        string config = $"{{ \"auths\": {{ \"{configuredRegistry}\": {{ \"auth\": \"{EncodeCredentials("other-port-user")}\" }} }} }}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) = CreateConfig(config, format);
+
+        await Assert.ThrowsAsync<CredsNotFoundException>(() => CredsProvider.GetCredentialsAsync(
+            requestedRegistry,
+            fileSystem.Object,
+            Mock.Of<IProcessService>(MockBehavior.Strict),
+            environment.Object));
+    }
+
+    [Theory]
+    [InlineData(true, "registry.example.com:5000/team", "registry.example.com")]
+    [InlineData(false, "registry.example.com:5000/team", "registry.example.com")]
+    [InlineData(true, "registry.example.com/team", "registry.example.com:5000")]
+    [InlineData(false, "registry.example.com/team", "registry.example.com:5000")]
+    [InlineData(true, "registry.example.com:5000/team", "registry.example.com:5001")]
+    [InlineData(false, "registry.example.com:5000/team", "registry.example.com:5001")]
+    public async Task CredentialHelperDoesNotCrossPortBoundaries(
+        bool useDockerConfig,
+        string requestedRegistry,
+        string configuredRegistry)
+    {
+        RegistryConfigFormat format = useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers;
+        string config = $"{{ \"credHelpers\": {{ \"{configuredRegistry}\": \"other-port-helper\" }} }}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) = CreateConfig(config, format);
+
+        await Assert.ThrowsAsync<CredsNotFoundException>(() => CredsProvider.GetCredentialsAsync(
+            requestedRegistry,
+            fileSystem.Object,
+            Mock.Of<IProcessService>(MockBehavior.Strict),
+            environment.Object));
+    }
+
+    [Theory]
+    [InlineData("registry.example.com/team2/image", "registry.example.com/team")]
+    [InlineData("registry.example.com/team/image2", "registry.example.com/team/image")]
+    [InlineData("registry.example.com/team", "registry.example.com/team/image")]
+    public async Task ContainersNamespaceMatchRequiresCompleteParentComponents(
+        string requestedRegistry,
+        string configuredRegistry)
+    {
+        string config = $"{{ \"auths\": {{ \"{configuredRegistry}\": {{ \"auth\": \"{EncodeCredentials("unrelated-user")}\" }} }} }}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) = CreateConfig(config, RegistryConfigFormat.Containers);
+
+        await Assert.ThrowsAsync<CredsNotFoundException>(() => CredsProvider.GetCredentialsAsync(
+            requestedRegistry,
+            fileSystem.Object,
+            Mock.Of<IProcessService>(MockBehavior.Strict),
+            environment.Object));
+    }
+
+    [Theory]
+    [InlineData(3, false)]
+    [InlineData(3, true)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task ContainersSelectsClosestAvailableParentRegardlessOfPropertyOrder(
+        int deepestAvailableParent,
+        bool deepestFirst)
+    {
+        string[] parents =
+        {
+            "registry.example.com:5000",
+            "registry.example.com:5000/team",
+            "registry.example.com:5000/team/project",
+            "registry.example.com:5000/team/project/image"
+        };
+        IEnumerable<string> entries = parents.Take(deepestAvailableParent + 1)
+            .Select((parent, index) => $"\"{parent}\": {{ \"auth\": \"{EncodeCredentials($"parent-{index}")}\" }}");
+        if (deepestFirst)
+        {
+            entries = entries.Reverse();
+        }
+        string config = $"{{ \"auths\": {{ {string.Join(",", entries)} }} }}";
+
+        DockerCredentials credentials = await GetCredentialsFromConfigAsync(
+            "registry.example.com:5000/team/project/image/layer",
+            config,
+            RegistryConfigFormat.Containers);
+
+        Assert.Equal($"parent-{deepestAvailableParent}", credentials.Username);
     }
 
     [Theory]
@@ -698,6 +809,43 @@ public class RegistryMatchingTests
                 Mock.Of<IEnvironment>(MockBehavior.Strict)));
     }
 
+    [Theory]
+    [InlineData("registry", "https://registry")]
+    [InlineData("https://registry", "registry")]
+    [InlineData("http://registry", "registry")]
+    [InlineData("registry", "http://registry")]
+    [InlineData("registry/path", "http://registry")]
+    [InlineData("registry", "http://registry/path")]
+    public async Task EncodedStore_DoesMatchRegistryByHostnameOnly(string configRegistry, string givenRegistry) {
+        string dockerConfigPath = Path.Combine(
+            MockExtensions.TestProfileDirectory,
+            ".docker",
+            "config.json");
+
+        string username = "testuser";
+        string password = "<CREDENTIAL_PLACEHOLDER>";
+
+        string encodedCreds = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+
+        string dockerConfigContent =
+            "{" +
+                "\"auths\": {" +
+                    $"\"{configRegistry}\":" + "{" +
+                        $"\"auth\": \"{encodedCreds}\"" +
+                    "}" +
+                "}" +
+            "}";
+
+        Mock<IFileSystem> fileSystemMock = new();
+        fileSystemMock
+            .WithFile(dockerConfigPath, dockerConfigContent);
+
+        var result = await CredsProvider.GetCredentialsAsync(givenRegistry, fileSystemMock.Object, Mock.Of<IProcessService>(), _defaultEnvironmentMock);
+
+        Assert.Equal(result.Username, username);
+        Assert.Equal(result.Password, password);
+    }
+
     private static async Task<DockerCredentials> GetInlineCredentialsAsync(
         string requestedRegistry,
         string configuredRegistry,
@@ -737,7 +885,7 @@ public class RegistryMatchingTests
             RegistryConfigFormat format)
     {
         Mock<IEnvironment> environment = new();
-        environment.WithSystemProfileFolder();
+        environment.WithTestEnvironment();
 
         string configPath;
         if (format == RegistryConfigFormat.Containers)
