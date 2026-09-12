@@ -39,8 +39,14 @@ external dependencies.
 For every `semver:major` pull request, add a new
 `.changes/+short-description.breaking.md` file in the same PR. Follow
 [the migration-note format](CONTRIBUTING.md#document-a-breaking-change): document the old and new
-behavior under `#### What changed` and actionable consumer instructions under
-`#### How to migrate`. Verify the implementation before describing its contract.
+behavior in separate `#### Previous behavior` and `#### New behavior` sections,
+then include `#### Type of breaking change`, `#### Reason for change`,
+`#### Recommended action`, and `#### Affected APIs` in that order. Identify
+affected consumers, verify both previous and current behavior, classify the
+compatibility impact, and give actionable migration and verification steps.
+Specify affected overloads; use a setting or command for non-API changes.
+Include before-and-after examples and reference links when useful. Follow
+the linked .NET-based format, not a PR summary or commit log.
 
 Use a unique lowercase slug; the filename does not need a PR number. Keep
 released fragments in Git, never rename or reuse them, and do not manually
@@ -57,7 +63,10 @@ For unpublished changes, edit the fragment; for published corrections, update
 the release's migration section and rerun Migration guides. Preserve its
 `migration-notes` start/end markers and `migration-topic` slug markers. Topic
 filenames come from fragment slugs, not titles; `readme` is reserved for the
-version index.
+version index. Do not predict a version in the fragment: published topic
+documents get **Version introduced** from their release tag. The same required
+sections are validated before rendering fragments and before archiving
+published topics; navigation indexes are exempt.
 
 When changing migration tooling, run its tests from the repository root:
 

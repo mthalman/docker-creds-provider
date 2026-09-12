@@ -67,6 +67,12 @@ The workflow reruns on label changes as well as code changes. See
 [migration-note authoring](CONTRIBUTING.md#document-a-breaking-change) for the
 required format.
 
+Each topic follows the .NET-based format documented in CONTRIBUTING.md:
+previous behavior, new behavior, type of breaking change, reason for change,
+recommended action, and affected APIs. Review the compatibility classification,
+the affected overloads or settings, and the consumer's verification steps;
+section validation cannot establish technical accuracy.
+
 The Release Drafter workflow first runs a read-only preview containing
 `$PREVIOUS_TAG`. That is the same release boundary used for its changelog and
 version resolution. The helper
@@ -110,6 +116,9 @@ Authors maintain fragments in `.changes/`. Readers use
 directories. Each directory contains a `README.md` topic index and one document
 per migration topic, such as
 `docs/migrations/3.0.0/credential-helper-errors.md`.
+Each generated topic also records **Version introduced**, derived from the
+published release tag. Authors do not choose a version directory or duplicate
+the version in their fragments.
 
 The **Migration guides** workflow reads the marked migration section from each
 published stable release, generates the topic files and indexes, and opens or
@@ -149,6 +158,10 @@ then rerun Migration guides. Do not separately edit generated guides or the
 index. Releases predating this system without markers are left alone; malformed
 markers fail generation rather than producing incomplete topic documents.
 Topic filenames retain their fragment slugs even if a topic's title changes.
+Published topics must retain the same completed sections as authoring fragments.
+Generation validates all marked topics before writing guides; an invalid topic
+stops the run without partially updating the generated documents. Releases
+without migration markers remain outside this format check.
 
 ## Configure trusted publishing
 

@@ -2,7 +2,7 @@ import os
 import re
 from pathlib import Path
 
-from migration_notes import MIGRATION_END, MIGRATION_START, STABLE_TAG, TOPIC_MARKER_PREFIX
+from migration_notes import FRAGMENTS, MIGRATION_END, MIGRATION_START, STABLE_TAG, TOPIC_MARKER_PREFIX, validate_fragment
 from update_release_draft import api
 
 
@@ -40,6 +40,7 @@ def migration_topics(section: str) -> dict[str, tuple[str, str]]:
         heading = re.match(r"### ([^\n]+)\n", text)
         if not heading:
             raise ValueError(f"Published migration topic {slug!r} needs a level-three title.")
+        validate_fragment(f"{FRAGMENTS}/+{slug}.breaking.md", text)
         topics[slug] = (heading[1], text)
     return topics
 
@@ -68,6 +69,7 @@ def guide_documents(releases: list[dict], repository: str) -> dict[str, dict[str
         for slug, (title, text) in topics.items():
             documents[f"{slug}.md"] = (
                 f"# Upgrade to {version}\n\n{provenance}"
+                f"**Version introduced:** {version}\n\n"
                 f"## Breaking changes and migration\n\n{text}\n"
             )
             label = title.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")

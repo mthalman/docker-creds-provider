@@ -15,6 +15,14 @@ STABLE_TAG = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 MIGRATION_START = "<!-- migration-notes:start -->"
 MIGRATION_END = "<!-- migration-notes:end -->"
 TOPIC_MARKER_PREFIX = "<!-- migration-topic:"
+REQUIRED_SECTIONS = (
+    "Previous behavior",
+    "New behavior",
+    "Type of breaking change",
+    "Reason for change",
+    "Recommended action",
+    "Affected APIs",
+)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -73,7 +81,7 @@ def validate_fragment(name: str, text: str) -> None:
         raise ValueError(f"{name}: migration fragment contains a reserved release-note marker.")
     if not re.match(r"### [^\n]+\n", text):
         raise ValueError(f"{name}: migration fragment must start with a level-three title.")
-    for heading in ("What changed", "How to migrate"):
+    for heading in REQUIRED_SECTIONS:
         section = section_content(text, heading)
         content = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL).strip()
         if not content or content.upper().rstrip(".") in ("TODO", "TBD", "N/A"):

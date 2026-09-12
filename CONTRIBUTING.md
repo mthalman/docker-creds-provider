@@ -66,26 +66,76 @@ Start with this structure and replace the example text with specific guidance:
 ```markdown
 ### Name the breaking change
 
-#### What changed
+Identify the affected consumers and the condition that triggers the change.
 
-Describe the previous behavior, the new behavior, and who is affected.
+#### Previous behavior
 
-#### How to migrate
+Describe the observable behavior before this change.
+
+#### New behavior
+
+Describe the observable behavior after this change, including relevant limits
+and behavior that remains unchanged.
+
+#### Type of breaking change
+
+Identify a behavioral, source-incompatible, or binary-incompatible change
+(or a combination), and explain its effect on consumers.
+
+#### Reason for change
+
+Explain why the change is necessary despite the compatibility impact.
+
+#### Recommended action
 
 Explain the required consumer changes, with before-and-after code when useful.
 If no code change is needed, explain what consumers must verify.
+Include a check that confirms the migration worked.
+
+#### Affected APIs
+
+List the public APIs and affected overloads. For a configuration or tooling
+change without an affected API, name the affected setting or command instead.
 ```
+
+Use the six level-four sections above in that order. Within a section, use
+level-five or level-six headings for before-and-after examples and fenced code
+blocks with a language identifier. Add an optional `#### References` section
+with absolute links to the implementing PR, issue, or related documentation
+when available. Do not guess a PR number or release version: the release
+provides the version context, and generated topic documents include
+**Version introduced** from the published release tag.
 
 The **Validate migration notes** check requires a new fragment for major PRs,
 rejects `skip-changelog` on those PRs, and validates the filename and required
 sections of every added or edited fragment, including on non-major PRs. It
 rejects empty sections, bare TODO/TBD/N/A placeholders, and reserved
-`migration-notes` start/end and `migration-topic` markers. Reviewers must still check technical
-accuracy and completeness; tooling does not infer instructions from code.
+`migration-notes` start/end and `migration-topic` markers. The same section
+validation runs on published topics before generating versioned guides.
+Indexes are navigation pages, not migration topics, and do not use this format.
+Reviewers must still check technical accuracy, compatibility classification,
+affected-API coverage, section order, and completeness; tooling does not infer
+instructions from code.
 
 Keep fragments in Git after publication. Do not delete, rename, or reuse them
 for a later breaking change. Corrections to existing fragments do not satisfy
 the new-fragment requirement for a major PR.
+
+### Format rationale
+
+This repository adapts the
+[.NET breaking-change template](https://github.com/dotnet/docs/blob/main/.github/ISSUE_TEMPLATE/02-breaking-change.yml)
+and [compatibility categories](https://learn.microsoft.com/en-us/dotnet/core/compatibility/categories).
+The template separates old and new behavior, the reason, consumer action, and
+affected APIs. We supply its version field from release metadata instead of
+asking fragment authors to predict it.
+
+[Google AIP-180](https://google.aip.dev/180) reinforces that observable behavior,
+not just API signatures, is part of compatibility.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) recommends human-readable,
+versioned notes that make breaking changes visible. These are established
+project and community conventions, not one universal migration-document
+standard. GitHub Releases remain this repository's changelog.
 
 ### Preview migration notes
 

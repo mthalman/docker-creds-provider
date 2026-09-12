@@ -11,16 +11,73 @@ from update_release_draft import combine_notes, update_draft
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REQUIRED_HEADINGS = (
+    "Previous behavior", "New behavior", "Type of breaking change",
+    "Reason for change", "Recommended action", "Affected APIs",
+)
 NOTE = """### Credential helper errors
 
-#### What changed
+#### Previous behavior
+
+Malformed helper JSON threw `JsonException`.
+
+#### New behavior
 
 Malformed helper JSON now throws `InvalidOperationException`.
 
-#### How to migrate
+#### Type of breaking change
+
+Behavioral change.
+
+#### Reason for change
+
+Avoid exposing credential-helper output in diagnostics.
+
+#### Recommended action
 
 Catch the new exception type and inspect its inner exception.
+
+#### Affected APIs
+
+`CredsProvider.GetCredentialsAsync` (all overloads).
 """
+
+
+class MigrationFormatTests(unittest.TestCase):
+    def test_dotnet_format_is_valid(self):
+        validate_fragment(".changes/+helper-errors.breaking.md", NOTE)
+
+    def test_each_required_section_must_be_present(self):
+        for heading in REQUIRED_HEADINGS:
+            with self.subTest(heading=heading):
+                text = NOTE.replace(f"#### {heading}", f"#### Omitted {heading}")
+                with self.assertRaisesRegex(ValueError, heading):
+                    validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_each_required_section_must_have_completed_content(self):
+        for heading in REQUIRED_HEADINGS:
+            before, separator, after = NOTE.partition(f"#### {heading}\n")
+            _, next_heading, remaining = after.partition("\n#### ")
+            for content in ("", "TODO", "TBD.", "N/A", "<!-- Fill this in. -->"):
+                with self.subTest(heading=heading, content=content):
+                    text = before + separator + f"\n{content}\n" + next_heading + remaining
+                    with self.assertRaisesRegex(ValueError, heading):
+                        validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_legacy_two_section_format_is_rejected(self):
+        text = "### Topic\n\n#### What changed\n\nChanged behavior.\n\n#### How to migrate\n\nUpdate code.\n"
+        with self.assertRaisesRegex(ValueError, "Previous behavior"):
+            validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_repository_fragments_follow_format(self):
+        for path in (ROOT / ".changes").glob("*.md"):
+            with self.subTest(path=path.name):
+                validate_fragment(path.relative_to(ROOT).as_posix(), path.read_text(encoding="utf-8"))
+
+    def test_contributor_template_follows_format(self):
+        document = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        template = document.split("```markdown\n", 1)[1].split("\n```", 1)[0]
+        validate_fragment(".changes/+example.breaking.md", template + "\n")
 
 
 class FragmentSectionTests(unittest.TestCase):
@@ -42,29 +99,29 @@ class FragmentSectionTests(unittest.TestCase):
     def test_required_heading_inside_fence_does_not_satisfy_requirement(self):
         for fence in ("```", "~~~~"):
             with self.subTest(fence=fence):
-                text = NOTE.split("#### How to migrate")[0] + (
-                    f"{fence}markdown\n#### How to migrate\nExample text, not guidance.\n{fence}\n"
+                text = NOTE.split("#### Recommended action")[0] + (
+                    f"{fence}markdown\n#### Recommended action\nExample text, not guidance.\n{fence}\n"
                 )
-                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                with self.assertRaisesRegex(ValueError, "Recommended action"):
                     self.validate(text)
 
     def test_shorter_or_different_fence_does_not_close_code_block(self):
         for false_close in ("```", "~~~~", "```` followed by text"):
             with self.subTest(false_close=false_close):
-                text = NOTE.split("#### How to migrate")[0] + (
+                text = NOTE.split("#### Recommended action")[0] + (
                     f"````markdown\n{false_close}\n"
-                    "#### How to migrate\nStill inside a code example.\n````\n"
+                    "#### Recommended action\nStill inside a code example.\n````\n"
                 )
-                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                with self.assertRaisesRegex(ValueError, "Recommended action"):
                     self.validate(text)
 
     def test_section_after_closed_indented_fence_is_recognized(self):
         for fence in ("```", "~~~"):
             with self.subTest(fence=fence):
                 text = NOTE.replace(
-                    "#### How to migrate",
+                    "#### Recommended action",
                     f"   {fence}markdown\n#### Not a real section\n   {fence}{fence}\n\n"
-                    "#### How to migrate",
+                    "#### Recommended action",
                 )
                 self.validate(text)
 
@@ -72,7 +129,7 @@ class FragmentSectionTests(unittest.TestCase):
         for heading in ("#### Details", "### Another topic", "## Appendix"):
             with self.subTest(heading=heading):
                 text = NOTE.split("Catch the new")[0] + f"{heading}\n\nUnrelated content.\n"
-                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                with self.assertRaisesRegex(ValueError, "Recommended action"):
                     self.validate(text)
 
 
@@ -136,7 +193,7 @@ class MigrationNotesTests(unittest.TestCase):
             check_pr(self.repo, base, self.commit(), ["semver:major"])
 
     def test_notes_require_meaningful_sections_even_for_nonmajor_pr(self):
-        for text in ("", NOTE.replace("#### How to migrate", "#### Details"),
+        for text in ("", NOTE.replace("#### Recommended action", "#### Details"),
                      NOTE.split("Catch the new")[0] + "TODO\n"):
             with self.subTest(text=text):
                 self.note(text=text)
@@ -209,7 +266,7 @@ class MigrationNotesTests(unittest.TestCase):
         head = self.commit()
         output = render(self.repo, None, head)
         self.assertTrue(output.startswith("## Breaking changes and migration\n\n<!-- migration-topic: "))
-        self.assertIn("inner exception.\n\n<!-- migration-topic: ", output)
+        self.assertIn("(all overloads).\n\n<!-- migration-topic: ", output)
         topics = migration_topics(output.strip())
         self.assertEqual(set(topics), {"first", "second"})
         self.assertEqual(output, render(self.repo, None, head))
@@ -360,12 +417,37 @@ class MigrationGuideTests(unittest.TestCase):
         topic = guides["3.0.0"]["credential-helper-errors.md"]
         self.assertEqual(set(guides["3.0.0"]), {"credential-helper-errors.md", "README.md"})
         self.assertTrue(topic.startswith("# Upgrade to 3.0.0\n\n"))
+        self.assertIn("**Version introduced:** 3.0.0\n", topic)
         self.assertIn("https://github.com/owner/repo/releases/tag/v3.0.0", topic)
         self.assertIn(NOTE.strip(), topic)
         self.assertNotIn("What's Changed", topic)
         self.assertNotIn("migration-notes:", topic)
         self.assertNotIn("migration-topic:", topic)
         self.assertIn("[Credential helper errors](credential-helper-errors.md)", guides["3.0.0"]["README.md"])
+
+    def test_published_topics_require_the_same_sections_as_fragments(self):
+        for heading in REQUIRED_HEADINGS:
+            with self.subTest(heading=heading):
+                release = self.release()
+                release["body"] = release["body"].replace(f"#### {heading}", f"#### Omitted {heading}")
+                with self.assertRaisesRegex(ValueError, heading):
+                    guide_documents([release], "owner/repo")
+
+    def test_invalid_published_topic_does_not_write_partial_guides(self):
+        invalid = self.release("v4.0.0")
+        invalid["body"] = invalid["body"].replace("#### Recommended action", "#### Details")
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            with self.assertRaisesRegex(ValueError, "Recommended action"):
+                write_guides(repo, [self.release(), invalid], "owner/repo")
+            self.assertFalse((repo / "docs").exists())
+
+    def test_version_introduced_comes_from_each_release_tag(self):
+        for tag in ("v3.0.0", "v10.2.1"):
+            with self.subTest(tag=tag):
+                version = tag[1:]
+                topic = guide_documents([self.release(tag)], "owner/repo")[version]["credential-helper-errors.md"]
+                self.assertIn(f"**Version introduced:** {version}\n", topic)
 
     def test_multiple_topics_generate_individual_files_and_version_index(self):
         release = self.release()
