@@ -451,25 +451,33 @@ class DraftUpdateTests(unittest.TestCase):
         self.assertEqual(api.call_args_list[-1].args[:2], (self.endpoint, "POST"))
         self.assertTrue(api.call_args_list[-1].args[2]["draft"])
 
-    def test_unrelated_drafts_are_not_updated(self):
-        for tag in ("v-next", "v3.0.0-preview.1", "v03.0.0", "unrelated"):
-            with self.subTest(tag=tag):
-                unrelated = {**self.draft, "id": 11, "tag_name": tag}
-                with patch("update_release_draft.api",
-                           side_effect=[[unrelated], self.result()]) as api:
-                    self.update([unrelated])
-                self.assertEqual(
-                    api.call_args_list[-1].args[:2], (self.endpoint, "POST")
-                )
+    def test_unrelated_drafts_block_creation_and_updates_without_writing(self):
+        for tag, prerelease in (
+            ("v-next", False), ("v3.0.0-preview.1", False), ("v03.0.0", False),
+            ("unrelated", False), ("v3.0.0-preview.1", True), ("v3.0.0", True),
+        ):
+            for has_stable_draft in (False, True):
+                with self.subTest(tag=tag, prerelease=prerelease, has_stable_draft=has_stable_draft):
+                    unrelated = {**self.draft, "id": 11, "tag_name": tag, "prerelease": prerelease}
+                    drafts = [unrelated, self.draft] if has_stable_draft else [unrelated]
+                    with patch("update_release_draft.api",
+                               side_effect=[drafts, self.result()]) as api:
+                        with self.assertRaisesRegex(ValueError, "Unrelated release drafts"):
+                            self.update(drafts)
+                    api.assert_called_once_with(self.endpoint)
 
-    def test_unrelated_drafts_do_not_hide_stable_draft(self):
-        drafts = [self.draft, {**self.draft, "id": 11, "tag_name": "v-next"}]
-        with patch("update_release_draft.api",
-                   side_effect=[drafts, self.result()]) as api:
-            self.update(drafts)
-        self.assertEqual(
-            api.call_args_list[-1].args[:2], (self.endpoint + "/10", "PATCH")
-        )
+    def test_published_releases_do_not_block_drafting(self):
+        for prerelease in (False, True):
+            with self.subTest(prerelease=prerelease):
+                published = {
+                    **self.draft, "id": 11, "draft": False, "prerelease": prerelease,
+                    "tag_name": "v2.3.0-preview.1" if prerelease else "v2.3.0",
+                    "published_at": "2026-09-01",
+                }
+                with patch("update_release_draft.api",
+                           side_effect=[[published], self.result()]) as api:
+                    self.update([published])
+                self.assertEqual(api.call_args_list[-1].args[:2], (self.endpoint, "POST"))
 
     def test_publishing_between_preview_and_update_aborts_without_writing(self):
         published = {**self.draft, "draft": False, "published_at": "2026-09-02"}

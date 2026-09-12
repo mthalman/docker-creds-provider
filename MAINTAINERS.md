@@ -116,9 +116,12 @@ serialized and check out current `main` so queued runs do not render an older
 push. Avoid publishing or manually editing releases while drafting runs.
 
 This integration drafts stable, `v`-prefixed releases, as configured today.
-Drafts whose tags are not stable `vMAJOR.MINOR.PATCH` versions are left untouched.
-Supporting a separate prerelease draft stream requires updating the draft
-selection policy alongside Release Drafter's configuration.
+Prerelease drafts and drafts whose tags are not stable `vMAJOR.MINOR.PATCH`
+versions are left untouched, but block draft generation: the publishing
+workflow requires exactly one draft release. Resolve unrelated drafts before
+rerunning Release Drafter. Supporting a separate prerelease draft stream
+requires updating both draft selection and publishing alongside Release
+Drafter's configuration.
 
 After a release is published, fragments present at its tag are automatically
 excluded from the next draft. No fragment cleanup or manual reapplication of

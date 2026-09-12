@@ -48,9 +48,13 @@ def update_draft(
     current = api(endpoint)
     if fingerprint(current) != fingerprint(snapshot):
         raise ValueError("Releases changed during generation; rerun Release Drafter.")
-    drafts = [release for release in current
-              if release["draft"] and not release["prerelease"]
-              and STABLE_TAG.fullmatch(release["tag_name"])]
+    drafts = [release for release in current if release["draft"]]
+    if any(release["prerelease"] or not STABLE_TAG.fullmatch(release["tag_name"])
+           for release in drafts):
+        raise ValueError(
+            "Unrelated release drafts found; remove or retag them before rerunning. "
+            "Publishing requires exactly one draft."
+        )
     if len(drafts) > 1:
         raise ValueError("Multiple stable release drafts found; select one before rerunning.")
     payload = {
