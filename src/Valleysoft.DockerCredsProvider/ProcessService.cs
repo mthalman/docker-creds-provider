@@ -135,7 +135,7 @@ internal class ProcessService : IProcessService
             _processStarted?.Invoke(process);
             CaptureRedirectedPipeHandles(process, pipeHandles);
 
-            inputTask = WriteInputAsync(process, input);
+            inputTask = WriteInputAsync(process, input, exitCompletion.Task);
             outputTask = ReadOutputAsync(
                 process,
                 standardOutput: true,
@@ -227,7 +227,7 @@ internal class ProcessService : IProcessService
         }
     }
 
-    private static async Task WriteInputAsync(Process process, string? input)
+    private static async Task WriteInputAsync(Process process, string? input, Task exitTask)
     {
         if (!process.StartInfo.RedirectStandardInput)
         {
@@ -258,14 +258,11 @@ internal class ProcessService : IProcessService
 
             writer.Close();
         }
-        catch (Exception e) when (
-            (e is IOException or ObjectDisposedException) && process.HasExited)
-        {
-            // A helper may exit without consuming all input; its exit result remains authoritative.
-        }
         catch (Exception e) when (e is IOException or ObjectDisposedException)
         {
-            throw new ProcessStreamException("standard input", exitCode: null, e);
+            // Pipe closure can precede exit notification. Let the helper's result win;
+            // WaitForCompletionAsync still enforces timeout, cancellation, and output failures.
+            await exitTask;
         }
     }
 
