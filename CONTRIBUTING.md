@@ -10,10 +10,6 @@ Install the .NET SDK version selected by [`global.json`](global.json). Run
 is installed. Download .NET SDKs from the
 [.NET download page](https://dotnet.microsoft.com/download).
 
-Install the .NET 8 runtime as well; the SDK selected by `global.json` does not
-include that runtime. Use `dotnet --list-runtimes` to check that version 8 of
-`Microsoft.NETCore.App` is available.
-
 Docker is not required. Unit tests use isolated configuration and process mocks.
 Integration tests build and run the repository's `docker-credential-test` helper
 executable, without accessing installed Docker helpers, keychains, or registries.
