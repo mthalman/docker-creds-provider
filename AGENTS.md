@@ -37,8 +37,8 @@ external dependencies.
 ## Breaking-change migration notes
 
 For every `semver:major` pull request, add a new
-`docs/migrations/+short-description.breaking.md` file in the same PR. Follow
-[the migration-note format](docs/MIGRATIONS.md): document the old and new
+`.changes/+short-description.breaking.md` file in the same PR. Follow
+[the migration-note format](CONTRIBUTING.md#document-a-breaking-change): document the old and new
 behavior under `#### What changed` and actionable consumer instructions under
 `#### How to migrate`. Verify the implementation before describing its contract.
 
@@ -47,6 +47,14 @@ released fragments in Git, never rename or reuse them, and do not manually
 maintain migration prose in the draft release. Release Drafter receives
 Towncrier-generated notes on every run and excludes already released fragments.
 Do not label a breaking-change PR `skip-changelog`.
+
+Reader-facing guides live at `docs/migrations/<version>.md`, with an index in
+`docs/migrations/README.md`. They are generated from published release notes by
+the Migration guides workflow, which opens a draft documentation PR. Do not
+edit them independently or put authoring instructions in that directory.
+For unpublished changes, edit the fragment; for published corrections, update
+the release's migration section and rerun Migration guides. Preserve its
+`migration-notes` start/end markers.
 
 When changing migration tooling, run its tests from the repository root:
 

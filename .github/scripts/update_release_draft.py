@@ -1,11 +1,10 @@
 import argparse
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
-from migration_notes import git, previous_tag, render
+from migration_notes import MIGRATION_END, MIGRATION_START, STABLE_TAG, git, previous_tag, render
 
 
 def api(endpoint: str, method: str = "GET", payload: dict | None = None):
@@ -33,13 +32,18 @@ def combine_notes(preview: str, migrations: str) -> str:
     changes = preview.split("-->", 1)[1].lstrip("\r\n")
     if not changes.strip():
         raise ValueError("Release Drafter preview has no release notes.")
-    return (migrations.rstrip() + "\n\n" if migrations else "") + changes
+    if MIGRATION_START in migrations or MIGRATION_END in migrations:
+        raise ValueError("Migration notes contain a reserved release-note marker.")
+    return (
+        f"{MIGRATION_START}\n{migrations.rstrip()}\n{MIGRATION_END}\n\n"
+        if migrations else ""
+    ) + changes
 
 
 def update_draft(
     endpoint: str, snapshot: list[dict], body: str, name: str, tag: str, commit: str
 ) -> dict:
-    if not name or not re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", tag):
+    if not name or not STABLE_TAG.fullmatch(tag):
         raise ValueError("Expected a named stable release with a v-prefixed tag.")
     current = api(endpoint)
     if fingerprint(current) != fingerprint(snapshot):

@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from migration_notes import check_pr, main, previous_tag, render
+from migration_notes import MIGRATION_END, MIGRATION_START, check_pr, main, previous_tag, render
+from migration_guides import guide_documents, index_document, migration_section, write_guides
 from update_release_draft import combine_notes, update_draft
 
 
@@ -45,7 +46,7 @@ class MigrationNotesTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
 
     def note(self, slug="helper", text=NOTE):
-        self.write(f"docs/migrations/+{slug}.breaking.md", text)
+        self.write(f".changes/+{slug}.breaking.md", text)
 
     def commit(self):
         self.git("add", ".")
@@ -90,14 +91,14 @@ class MigrationNotesTests(unittest.TestCase):
                     check_pr(self.repo, self.base, self.commit(), ["semver:patch"])
 
     def test_invalid_fragment_filename_fails(self):
-        self.write("docs/migrations/wrong.md", NOTE)
+        self.write(".changes/wrong.md", NOTE)
         with self.assertRaisesRegex(ValueError, "filename"):
             check_pr(self.repo, self.base, self.commit(), ["semver:major"])
 
     def test_deleting_or_renaming_note_fails(self):
         self.note()
         base = self.commit()
-        self.git("mv", "docs/migrations/+helper.breaking.md", "docs/migrations/+renamed.breaking.md")
+        self.git("mv", ".changes/+helper.breaking.md", ".changes/+renamed.breaking.md")
         with self.assertRaisesRegex(ValueError, "delete or rename"):
             check_pr(self.repo, base, self.commit(), ["semver:patch"])
 
@@ -140,7 +141,7 @@ class MigrationNotesTests(unittest.TestCase):
         self.assertNotIn("Old change", output)
         self.assertEqual(output, render(self.repo, base, head))
         self.assertEqual(before, self.git("status", "--porcelain", "--untracked-files=all"))
-        self.assertTrue((self.repo / "docs/migrations/+new.breaking.md").exists())
+        self.assertTrue((self.repo / ".changes/+new.breaking.md").exists())
         self.assertEqual(render(self.repo, head, head), "")
 
     def test_render_first_release_includes_all_notes(self):
@@ -166,7 +167,8 @@ class MigrationNotesTests(unittest.TestCase):
         preview = "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Existing PR\n"
         combined = combine_notes(preview, notes)
         self.assertIn(text.strip(), combined)
-        self.assertTrue(combined.endswith("```\n\n## What's Changed\n\n- Existing PR\n"))
+        self.assertTrue(combined.endswith(f"```\n{MIGRATION_END}\n\n## What's Changed\n\n- Existing PR\n"))
+        self.assertIn(text.strip(), migration_section(combined))
         self.assertNotIn("migration-base:", combined)
 
     def test_render_uses_committed_note_not_working_tree(self):
@@ -192,6 +194,11 @@ class MigrationNotesTests(unittest.TestCase):
         self.note(text="TODO")
         with self.assertRaisesRegex(ValueError, "migration fragment"):
             render(self.repo, self.base, self.commit())
+
+    def test_reserved_migration_markers_are_rejected_in_fragments(self):
+        self.note(text=NOTE + MIGRATION_START)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            check_pr(self.repo, self.base, self.commit(), ["semver:major"])
 
     def test_render_does_not_reintroduce_edited_released_notes(self):
         self.configure_renderer()
@@ -270,6 +277,95 @@ class DraftUpdateTests(unittest.TestCase):
         self.assertEqual(
             combine_notes("<!-- migration-base: v2.3.0 -->## What's Changed", ""),
             "## What's Changed",
+        )
+
+
+class MigrationGuideTests(unittest.TestCase):
+    def release(self, tag="v3.0.0", **overrides):
+        return {
+            "tag_name": tag, "draft": False, "prerelease": False,
+            "body": combine_notes(
+                "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Product fix",
+                "## Breaking changes and migration\n\n" + NOTE,
+            ),
+            **overrides,
+        }
+
+    def test_guide_contains_only_published_migration_section(self):
+        guides = guide_documents([self.release()], "owner/repo")
+        self.assertEqual(set(guides), {"3.0.0"})
+        self.assertTrue(guides["3.0.0"].startswith("# Upgrade to 3.0.0\n\n"))
+        self.assertIn("https://github.com/owner/repo/releases/tag/v3.0.0", guides["3.0.0"])
+        self.assertIn(NOTE.strip(), guides["3.0.0"])
+        self.assertNotIn("What's Changed", guides["3.0.0"])
+        self.assertNotIn("migration-notes:", guides["3.0.0"])
+
+    def test_skips_drafts_prereleases_and_releases_without_migration_notes(self):
+        releases = [
+            self.release(draft=True),
+            self.release("v3.0.0-preview.1", prerelease=True),
+            self.release(body="Legacy notes without migration markers"),
+            self.release(body=None),
+        ]
+        self.assertEqual(guide_documents(releases, "owner/repo"), {})
+
+    def test_malformed_markers_fail_instead_of_generating_partial_guide(self):
+        for body in (
+            MIGRATION_START, MIGRATION_END,
+            f"{MIGRATION_END}\n{MIGRATION_START}",
+            f"{MIGRATION_START}\n{MIGRATION_START}\n{MIGRATION_END}",
+            f"{MIGRATION_START}\n## Breaking changes and migration\n{MIGRATION_END}",
+        ):
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "migration notes"):
+                migration_section(body)
+
+    def test_windows_line_endings_preserve_section_text(self):
+        release = self.release()
+        expected = migration_section(release["body"])
+        self.assertEqual(migration_section(release["body"].replace("\n", "\r\n")), expected)
+
+    def test_unsafe_or_duplicate_version_fails(self):
+        with self.assertRaisesRegex(ValueError, "tag"):
+            guide_documents([self.release("v../escape")], "owner/repo")
+        with self.assertRaisesRegex(ValueError, "Multiple"):
+            guide_documents([self.release(), self.release()], "owner/repo")
+
+    def test_index_orders_versions_numerically_and_descending(self):
+        index = index_document({"3.0.0", "10.0.0", "4.0.0"})
+        self.assertLess(index.index("10.0.0"), index.index("4.0.0"))
+        self.assertLess(index.index("4.0.0"), index.index("3.0.0"))
+        self.assertIn("[Upgrade to 3.0.0](3.0.0.md)", index)
+
+    def test_generation_is_idempotent_and_retains_archived_guides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            write_guides(repo, [self.release()], "owner/repo")
+            files = sorted((repo / "docs/migrations").glob("*.md"))
+            before = {path.name: path.read_bytes() for path in files}
+            write_guides(repo, [self.release()], "owner/repo")
+            self.assertEqual(before, {path.name: path.read_bytes() for path in files})
+            write_guides(repo, [self.release("v4.0.0")], "owner/repo")
+            self.assertTrue((repo / "docs/migrations/3.0.0.md").exists())
+            index = (repo / "docs/migrations/README.md").read_text(encoding="utf-8")
+            self.assertIn("3.0.0.md", index)
+            self.assertIn("4.0.0.md", index)
+
+    def test_corrected_release_updates_guide_without_duplicate_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            write_guides(repo, [self.release()], "owner/repo")
+            corrected = self.release()
+            corrected["body"] = corrected["body"].replace("new exception type", "corrected exception type")
+            write_guides(repo, [corrected], "owner/repo")
+            guide = (repo / "docs/migrations/3.0.0.md").read_text(encoding="utf-8")
+            self.assertIn("corrected exception type", guide)
+            self.assertEqual(guide.count("# Upgrade to 3.0.0"), 1)
+
+    def test_reader_index_matches_checked_in_versioned_guides(self):
+        versions = {path.stem for path in (ROOT / "docs/migrations").glob("[0-9]*.md")}
+        self.assertEqual(
+            index_document(versions),
+            (ROOT / "docs/migrations/README.md").read_text(encoding="utf-8"),
         )
 
 

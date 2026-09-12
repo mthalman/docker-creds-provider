@@ -64,7 +64,8 @@ does not maintain a `CHANGELOG.md`.
 Require the **Validate migration notes** status check in the `main` branch
 ruleset so a `semver:major` PR cannot merge without its migration fragment.
 The workflow reruns on label changes as well as code changes. See
-[migration-note authoring](docs/MIGRATIONS.md) for the required format.
+[migration-note authoring](CONTRIBUTING.md#document-a-breaking-change) for the
+required format.
 
 The Release Drafter workflow first runs a read-only preview containing
 `$PREVIOUS_TAG`. That is the same release boundary used for its changelog and
@@ -101,6 +102,42 @@ corrections in their source fragments and rerun **Release Drafter** (or merge
 the correction to trigger it). Before tagging, confirm the final draft workflow
 completed successfully and contains the expected notes. This automation does
 not create tags, publish releases, or change MinVer's version calculation.
+
+### Archive guides by release version
+
+Authors maintain fragments in `.changes/`. Readers use
+[`docs/migrations/README.md`](docs/migrations/README.md), which links to one guide
+per release version, such as `docs/migrations/3.0.0.md`.
+
+The **Migration guides** workflow reads the marked migration section from each
+published stable release, generates the versioned files and index, and opens or
+updates one draft documentation PR on `automation/migration-guides`. Only
+`docs/migrations/` is committed. Versions without migration instructions are
+omitted, and previously archived guides are retained. Repeated runs produce no
+changes unless published migration text or the set of releases changed.
+
+The workflow runs on publication, after the Release workflow completes, and
+through manual dispatch. The `workflow_run` trigger covers releases published
+using `GITHUB_TOKEN`, which do not trigger another `release` event workflow.
+It also checks after failed Release runs because publication may have succeeded
+before a later package-attachment step failed. It reads only published release
+metadata and checks out trusted `main`; it never executes the release tag or
+downloads triggering-run artifacts.
+
+Enable **Allow GitHub Actions to create and approve pull requests** in the
+repository's Actions settings. No additional token is needed. The built-in
+token does not trigger CI when it creates or updates a PR, so generated PRs use
+`draft: always-true`. Mark the PR ready for review to trigger CI and migration
+validation; an automated update returns it to draft for another review.
+Merge the PR after its checks pass. The workflow never commits directly to
+`main` or merges the PR.
+
+Published GitHub Releases remain the source of truth for archived guides.
+For corrections, edit that release's migration section while preserving its
+`<!-- migration-notes:start -->` and `<!-- migration-notes:end -->` markers,
+then rerun Migration guides. Do not separately edit generated guides or the
+index. Releases predating this system without markers are left alone; malformed
+markers fail generation rather than producing an incomplete guide.
 
 ## Configure trusted publishing
 

@@ -9,8 +9,11 @@ import tempfile
 from pathlib import Path
 
 
-FRAGMENTS = "docs/migrations"
+FRAGMENTS = ".changes"
 FILENAME = re.compile(r"\+[a-z0-9]+(?:-[a-z0-9]+)*\.breaking\.md")
+STABLE_TAG = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
+MIGRATION_START = "<!-- migration-notes:start -->"
+MIGRATION_END = "<!-- migration-notes:end -->"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -32,6 +35,8 @@ def validate_fragment(name: str, text: str) -> None:
             f"Invalid migration fragment filename: {name}. "
             f"Use {FRAGMENTS}/+short-description.breaking.md."
         )
+    if MIGRATION_START in text or MIGRATION_END in text:
+        raise ValueError(f"{name}: migration fragment contains a reserved release-note marker.")
     if not re.match(r"### [^\n]+\n", text):
         raise ValueError(f"{name}: migration fragment must start with a level-three title.")
     for heading in ("What changed", "How to migrate"):
