@@ -129,10 +129,15 @@ metadata and checks out trusted `main`; it never executes the release tag or
 downloads triggering-run artifacts.
 
 Enable **Allow GitHub Actions to create and approve pull requests** in the
-repository's Actions settings. No additional token is needed. The built-in
-token does not trigger CI when it creates or updates a PR, so generated PRs use
-`draft: always-true`. Mark the PR ready for review to trigger CI and migration
-validation; an automated update returns it to draft for another review.
+repository's Actions settings. No additional token is needed. PRs created or
+updated with `GITHUB_TOKEN` can start approval-required workflow runs for the
+`opened`, `synchronize`, and `reopened` events. A maintainer can select
+**Approve workflows to run** on the PR; see
+[GitHub's workflow-triggering rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+Generated PRs use `draft: always-true`. Marking a PR ready for review also
+triggers CI and migration validation through their `ready_for_review` event.
+An automated update returns it to draft for another review.
 Merge the PR after its checks pass. The workflow never commits directly to
 `main` or merges the PR.
 

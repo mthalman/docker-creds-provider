@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render
+from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render, validate_fragment
 from migration_guides import guide_documents, index_document, migration_section, migration_topics, write_guides
 from update_release_draft import combine_notes, update_draft
 
@@ -21,6 +21,59 @@ Malformed helper JSON now throws `InvalidOperationException`.
 
 Catch the new exception type and inspect its inner exception.
 """
+
+
+class FragmentSectionTests(unittest.TestCase):
+    def validate(self, text):
+        validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_nested_before_and_after_headings_are_valid(self):
+        text = NOTE.replace(
+            "Malformed helper JSON now throws `InvalidOperationException`.",
+            "##### Previous behavior\n\nMalformed JSON threw JsonException.\n\n"
+            "##### New behavior\n\nMalformed JSON throws InvalidOperationException.",
+        ).replace(
+            "Catch the new exception type and inspect its inner exception.",
+            "##### Before\n\nCatch JsonException.\n\n"
+            "##### After\n\nCatch InvalidOperationException and inspect InnerException.",
+        )
+        self.validate(text)
+
+    def test_required_heading_inside_fence_does_not_satisfy_requirement(self):
+        for fence in ("```", "~~~~"):
+            with self.subTest(fence=fence):
+                text = NOTE.split("#### How to migrate")[0] + (
+                    f"{fence}markdown\n#### How to migrate\nExample text, not guidance.\n{fence}\n"
+                )
+                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                    self.validate(text)
+
+    def test_shorter_or_different_fence_does_not_close_code_block(self):
+        for false_close in ("```", "~~~~", "```` followed by text"):
+            with self.subTest(false_close=false_close):
+                text = NOTE.split("#### How to migrate")[0] + (
+                    f"````markdown\n{false_close}\n"
+                    "#### How to migrate\nStill inside a code example.\n````\n"
+                )
+                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                    self.validate(text)
+
+    def test_section_after_closed_indented_fence_is_recognized(self):
+        for fence in ("```", "~~~"):
+            with self.subTest(fence=fence):
+                text = NOTE.replace(
+                    "#### How to migrate",
+                    f"   {fence}markdown\n#### Not a real section\n   {fence}{fence}\n\n"
+                    "#### How to migrate",
+                )
+                self.validate(text)
+
+    def test_empty_section_does_not_consume_following_peer_or_parent(self):
+        for heading in ("#### Details", "### Another topic", "## Appendix"):
+            with self.subTest(heading=heading):
+                text = NOTE.split("Catch the new")[0] + f"{heading}\n\nUnrelated content.\n"
+                with self.assertRaisesRegex(ValueError, "How to migrate"):
+                    self.validate(text)
 
 
 class MigrationNotesTests(unittest.TestCase):

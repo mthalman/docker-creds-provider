@@ -30,6 +30,37 @@ def changed_files(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
     return list(zip(entries[0:-1:2], entries[1:-1:2]))
 
 
+def section_content(text: str, title: str) -> str:
+    content = []
+    active = False
+    fence = ""
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        if fence:
+            if active:
+                content.append(raw_line)
+            if re.fullmatch(rf" {{0,3}}{re.escape(fence[0])}{{{len(fence)},}}[ \t]*", line):
+                fence = ""
+            continue
+        opening = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+        if opening and (opening[1][0] == "~" or "`" not in opening[2]):
+            fence = opening[1]
+            if active:
+                content.append(raw_line)
+            continue
+        heading = re.match(r" {0,3}(#{1,4})(?:[ \t]+(.*)|$)", line)
+        if heading:
+            if active:
+                break
+            heading_title = re.sub(r"[ \t]+#+[ \t]*$", "", heading[2] or "").strip()
+            if len(heading[1]) == 4 and heading_title == title:
+                active = True
+                continue
+        if active:
+            content.append(raw_line)
+    return "".join(content)
+
+
 def validate_fragment(name: str, text: str) -> None:
     if not FILENAME.fullmatch(Path(name).name) or Path(name).parent.as_posix() != FRAGMENTS:
         raise ValueError(
@@ -43,10 +74,8 @@ def validate_fragment(name: str, text: str) -> None:
     if not re.match(r"### [^\n]+\n", text):
         raise ValueError(f"{name}: migration fragment must start with a level-three title.")
     for heading in ("What changed", "How to migrate"):
-        section = re.search(
-            rf"^#### {heading}\s*\n(.*?)(?=^#|\Z)", text, re.MULTILINE | re.DOTALL
-        )
-        content = re.sub(r"<!--.*?-->", "", section[1], flags=re.DOTALL).strip() if section else ""
+        section = section_content(text, heading)
+        content = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL).strip()
         if not content or content.upper().rstrip(".") in ("TODO", "TBD", "N/A"):
             raise ValueError(f"{name}: migration fragment needs a completed '#### {heading}' section.")
 
