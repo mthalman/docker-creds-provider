@@ -94,6 +94,7 @@ serialized and check out current `main` so queued runs do not render an older
 push. Avoid publishing or manually editing releases while drafting runs.
 
 This integration drafts stable, `v`-prefixed releases, as configured today.
+Drafts whose tags are not stable `vMAJOR.MINOR.PATCH` versions are left untouched.
 Supporting a separate prerelease draft stream requires updating the draft
 selection policy alongside Release Drafter's configuration.
 

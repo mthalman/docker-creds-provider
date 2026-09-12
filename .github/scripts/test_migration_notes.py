@@ -371,6 +371,26 @@ class DraftUpdateTests(unittest.TestCase):
         self.assertEqual(api.call_args_list[-1].args[:2], (self.endpoint, "POST"))
         self.assertTrue(api.call_args_list[-1].args[2]["draft"])
 
+    def test_unrelated_drafts_are_not_updated(self):
+        for tag in ("v-next", "v3.0.0-preview.1", "v03.0.0", "unrelated"):
+            with self.subTest(tag=tag):
+                unrelated = {**self.draft, "id": 11, "tag_name": tag}
+                with patch("update_release_draft.api",
+                           side_effect=[[unrelated], self.result()]) as api:
+                    self.update([unrelated])
+                self.assertEqual(
+                    api.call_args_list[-1].args[:2], (self.endpoint, "POST")
+                )
+
+    def test_unrelated_drafts_do_not_hide_stable_draft(self):
+        drafts = [self.draft, {**self.draft, "id": 11, "tag_name": "v-next"}]
+        with patch("update_release_draft.api",
+                   side_effect=[drafts, self.result()]) as api:
+            self.update(drafts)
+        self.assertEqual(
+            api.call_args_list[-1].args[:2], (self.endpoint + "/10", "PATCH")
+        )
+
     def test_publishing_between_preview_and_update_aborts_without_writing(self):
         published = {**self.draft, "draft": False, "published_at": "2026-09-02"}
         with patch("update_release_draft.api", return_value=[published]) as api:

@@ -50,7 +50,7 @@ def update_draft(
         raise ValueError("Releases changed during generation; rerun Release Drafter.")
     drafts = [release for release in current
               if release["draft"] and not release["prerelease"]
-              and release["tag_name"].startswith("v")]
+              and STABLE_TAG.fullmatch(release["tag_name"])]
     if len(drafts) > 1:
         raise ValueError("Multiple stable release drafts found; select one before rerunning.")
     payload = {
