@@ -63,7 +63,22 @@ does not maintain a `CHANGELOG.md`.
 
 Require the **Validate migration notes** status check in the `main` branch
 ruleset so a `semver:major` PR cannot merge without its migration fragment.
-The workflow reruns on label changes as well as code changes. See
+For initial setup, merge the policy workflow into `main` before requiring its
+status check: a new `pull_request_target` workflow does not run from an
+unmerged PR. For existing PRs, trigger a new event, such as a label change or
+code update, after the workflow is available.
+
+The **Migration note policy** workflow reruns on label changes as well as code
+changes. It uses `pull_request_target` so the workflow itself is trusted, checks
+out the PR's base commit, and fetches the head commit only as Git data. It runs
+the base validator in Python isolated mode with no dependency installation.
+The checkout retains read-only authentication for the fetch; PR code is never
+checked out or executed in this job. Do not add PR builds, tests, or dependency
+installation to it.
+
+The separate **Test migration tooling** job uses the ordinary `pull_request`
+workflow to exercise the proposed scripts and dependencies, without persisted
+checkout credentials. See
 [migration-note authoring](CONTRIBUTING.md#document-a-breaking-change) for the
 required format.
 

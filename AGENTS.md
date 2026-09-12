@@ -68,6 +68,12 @@ documents get **Version introduced** from their release tag. The same required
 sections are validated before rendering fragments and before archiving
 published topics; navigation indexes are exempt.
 
+Keep policy enforcement separate from tooling tests. The **Migration note
+policy** workflow uses `pull_request_target` and executes only the validator
+from the base commit. Fetch PR commits as Git data, but never check out or
+execute PR code or install PR dependencies in that job. Proposed tooling and
+dependency changes are tested separately through `pull_request`.
+
 When changing migration tooling, run its tests from the repository root:
 
 ```shell

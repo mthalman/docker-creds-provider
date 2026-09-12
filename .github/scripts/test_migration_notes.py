@@ -1,5 +1,7 @@
+import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,6 +223,46 @@ class MigrationNotesTests(unittest.TestCase):
         head = self.commit()
         with self.assertRaisesRegex(ValueError, "new migration fragment"):
             check_pr(self.repo, other, head, ["semver:major"])
+
+    def test_policy_runs_base_validator_not_pr_code(self):
+        validator_path = ".github/scripts/migration_notes.py"
+        trusted_validator = (ROOT / validator_path).read_text(encoding="utf-8")
+        self.write(validator_path, trusted_validator)
+        base = self.commit()
+        sentinel = "UNTRUSTED PR CODE EXECUTED"
+        for add_note in (False, True):
+            with self.subTest(add_note=add_note):
+                self.git("checkout", "-q", base)
+                self.write(validator_path, f"print({sentinel!r})\n")
+                self.write(".github/scripts/requirements.txt", "invalid requirement ???\n")
+                self.write("sitecustomize.py", f"print({sentinel!r})\n")
+                if add_note:
+                    self.note()
+                head = self.commit()
+                self.git("checkout", "-q", base)
+                with tempfile.TemporaryDirectory() as directory:
+                    event_path = Path(directory) / "event.json"
+                    event_path.write_text(json.dumps({
+                        "pull_request": {
+                            "base": {"sha": base},
+                            "head": {"sha": head},
+                            "labels": [{"name": "semver:major"}],
+                        },
+                    }), encoding="utf-8")
+                    result = subprocess.run(
+                        [sys.executable, "-I", validator_path, "check", "--event", str(event_path)],
+                        cwd=self.repo, capture_output=True, text=True, encoding="utf-8",
+                    )
+                self.assertEqual(result.returncode, 0 if add_note else 1, result.stderr)
+                self.assertNotIn(sentinel, result.stdout + result.stderr)
+                if add_note:
+                    self.assertIn("Migration note policy passed.", result.stdout)
+                else:
+                    self.assertIn("must add a new migration fragment", result.stderr)
+                self.assertEqual(self.git("rev-parse", "HEAD"), base)
+                self.assertEqual(
+                    (self.repo / validator_path).read_text(encoding="utf-8"), trusted_validator
+                )
 
     def test_preview_uses_exact_drafter_boundary(self):
         self.assertEqual(

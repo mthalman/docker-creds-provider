@@ -117,6 +117,12 @@ Reviewers must still check technical accuracy, compatibility classification,
 affected-API coverage, section order, and completeness; tooling does not infer
 instructions from code.
 
+The policy runs the validator from the PR's base revision and reads PR commits
+as Git data without checking them out or executing their code. Changing the
+validator in a PR cannot change the policy applied to that PR.
+The separate **Test migration tooling** job tests the proposed tooling changes
+and dependencies in the ordinary `pull_request` workflow.
+
 Keep fragments in Git after publication. Do not delete, rename, or reuse them
 for a later breaking change. Corrections to existing fragments do not satisfy
 the new-fragment requirement for a major PR.

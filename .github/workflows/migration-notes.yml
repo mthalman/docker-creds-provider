@@ -16,13 +16,14 @@ concurrency:
 
 jobs:
   migration-notes:
-    name: Validate migration notes
+    name: Test migration tooling
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -34,7 +35,3 @@ jobs:
 
       - name: Test migration tooling
         run: python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
-
-      - name: Check pull request migration notes
-        if: github.event_name == 'pull_request'
-        run: python .github/scripts/migration_notes.py check --event "$GITHUB_EVENT_PATH"
