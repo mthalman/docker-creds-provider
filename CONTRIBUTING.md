@@ -10,9 +10,8 @@ Install the .NET SDK version selected by [`global.json`](global.json). Run
 is installed. Download .NET SDKs from the
 [.NET download page](https://dotnet.microsoft.com/download).
 
-Docker is not required. Unit tests use isolated configuration and process mocks.
-Integration tests build and run the repository's `docker-credential-test` helper
-executable, without accessing installed Docker helpers, keychains, or registries.
+Docker is not required to run the automated tests because the test suite mocks
+configuration files and credential helper processes.
 
 ## Build and test locally
 
@@ -24,29 +23,6 @@ From the repository root, run the same commands used by CI (CI sets `src` as the
     dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
 
 A successful test run reports no failed tests.
-
-The test project and helper target `net8.0`, the lowest supported modern runtime.
-To run one suite from `src`, use:
-
-    dotnet test Valleysoft.DockerCredsProvider.Test --no-restore -c Release --filter FullyQualifiedName~CredsProviderIntegrationTests
-
-Use these class names to select other suites:
-
-| Suite | Coverage |
-|---|---|
-| `CredsProviderTests` | Public entry-point contracts |
-| `ConfigDiscoveryTests` | Configuration paths, precedence, and fallback |
-| `RegistryMatchingTests` | Docker and containers registry compatibility |
-| `EncodedStoreTests` | Inline credentials and malformed encoded data |
-| `NativeStoreTests` | Helper selection and response/error contracts |
-| `NativeStoreIntegrationTests` | Real helper responses and stream failures |
-| `CredsProviderIntegrationTests` | Config-to-helper protocol and concurrent lookups |
-| `ProcessServiceTests` | Output byte limits, cancellation, deadlines, and cleanup |
-
-Process tests use short test-specific deadlines where possible while verifying
-that native credential lookup retains its 30-second default. Integration tests
-own their temporary files and helper processes and clean them up on failure.
-Do not point fixture tests at your real Docker configuration.
 
 To create the same package artifacts validated by CI, continue with:
 
@@ -67,7 +43,4 @@ Before opening a pull request:
 4. Keep the pull request focused on one change and explain its user-visible
    effect.
 
-CI runs .NET 8 tests, including real helper integration tests, on Ubuntu, Windows,
-and macOS. The library continues to build and undergo package validation for
-`netstandard2.0`, `net8.0`, and `net9.0`. CI uploads separate test results for
-each operating system.
+CI builds and tests pull requests on Linux and Windows.
