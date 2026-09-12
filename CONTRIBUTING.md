@@ -35,7 +35,9 @@ Before opening a pull request:
 
 1. Add or update tests for behavior changes.
 2. Update `README.md` when a change affects installation, configuration, the
-   public API, or error behavior.
+   public API, or error behavior. For breaking changes, also add a
+   [migration fragment](docs/MIGRATIONS.md); keep upgrade instructions out of
+   README.md.
 3. Run the Release build and test commands above.
 4. Keep the pull request focused on one change and explain its user-visible
    effect.

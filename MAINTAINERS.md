@@ -59,6 +59,49 @@ requests without a category appear under Maintenance.
 Published GitHub Releases are the release-note system of record; this repository
 does not maintain a `CHANGELOG.md`.
 
+### Automate breaking-change migration notes
+
+Require the **Validate migration notes** status check in the `main` branch
+ruleset so a `semver:major` PR cannot merge without its migration fragment.
+The workflow reruns on label changes as well as code changes. See
+[migration-note authoring](docs/MIGRATIONS.md) for the required format.
+
+The Release Drafter workflow first runs a read-only preview containing
+`$PREVIOUS_TAG`. That is the same release boundary used for its changelog and
+version resolution. The helper
+selects fragments added since that tag, validates them, and renders them with
+Towncrier. For a first release, all committed fragments are included.
+
+The helper prepends Towncrier's literal Markdown to Release Drafter's rendered
+body, then creates or updates an unpublished draft through the GitHub API.
+Migration text is not processed as a Release Drafter template, so code examples
+containing variables such as `$OWNER` remain unchanged. Every run regenerates
+both the migration section and the normal categorized notes.
+
+The workflow snapshots release metadata before the preview and rechecks it
+immediately before writing. If a release is published or a draft changes during
+generation, it fails and must be rerun. Multiple stable drafts also fail instead
+of silently choosing one. A failed preview, missing history, invalid fragment,
+or failed render stops the workflow before it writes a draft. Runs are
+serialized and check out current `main` so queued runs do not render an older
+push. Avoid publishing or manually editing releases while drafting runs.
+
+This integration drafts stable, `v`-prefixed releases, as configured today.
+Supporting a separate prerelease draft stream requires updating the draft
+selection policy alongside Release Drafter's configuration.
+
+After a release is published, fragments present at its tag are automatically
+excluded from the next draft. No fragment cleanup or manual reapplication of
+migration notes is needed. The fragments remain available in Git; published
+release notes remain the record for that version. Changes to old fragments do
+not update published releases automatically.
+
+Manual additions to the draft body are still overwritten. Make migration
+corrections in their source fragments and rerun **Release Drafter** (or merge
+the correction to trigger it). Before tagging, confirm the final draft workflow
+completed successfully and contains the expected notes. This automation does
+not create tags, publish releases, or change MinVer's version calculation.
+
 ## Configure trusted publishing
 
 Complete this setup before pushing the first release tag:

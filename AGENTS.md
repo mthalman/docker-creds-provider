@@ -31,7 +31,29 @@ external dependencies.
 - Keep nullable reference types and analyzers enabled.
 - Add or update tests for behavior changes.
 - Update `README.md` when installation, configuration, public API, or error
-  behavior changes.
+  behavior changes. Put upgrade-specific instructions in migration fragments,
+  not README.md.
+
+## Breaking-change migration notes
+
+For every `semver:major` pull request, add a new
+`docs/migrations/+short-description.breaking.md` file in the same PR. Follow
+[the migration-note format](docs/MIGRATIONS.md): document the old and new
+behavior under `#### What changed` and actionable consumer instructions under
+`#### How to migrate`. Verify the implementation before describing its contract.
+
+Use a unique lowercase slug; the filename does not need a PR number. Keep
+released fragments in Git, never rename or reuse them, and do not manually
+maintain migration prose in the draft release. Release Drafter receives
+Towncrier-generated notes on every run and excludes already released fragments.
+Do not label a breaking-change PR `skip-changelog`.
+
+When changing migration tooling, run its tests from the repository root:
+
+```shell
+python -m pip install -r .github/scripts/requirements.txt
+python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
+```
 
 ## Pull request labels
 
