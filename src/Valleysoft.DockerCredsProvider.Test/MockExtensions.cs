@@ -6,6 +6,8 @@ using Moq;
 
 public static class MockExtensions {
 
+    internal const string TestProfileDirectory = "unit-test-profile";
+
     internal static Mock<IFileSystem> WithFile(this Mock<IFileSystem> mock, string fileThatExists) {
         mock
             .Setup(m => m.FileExists(fileThatExists))
@@ -81,8 +83,9 @@ public static class MockExtensions {
         return mock;
     }
 
-    internal static Mock<IEnvironment> WithSystemProfileFolder(this Mock<IEnvironment> mock) {
-        mock.Setup(o => o.GetFolderPath(It.IsAny<Environment.SpecialFolder>())).Returns<Environment.SpecialFolder>(arg => new EnvironmentWrapper().GetFolderPath(arg));
+    internal static Mock<IEnvironment> WithTestEnvironment(this Mock<IEnvironment> mock) {
+        mock.Setup(o => o.GetEnvironmentVariable(It.IsAny<string>())).Returns((string?)null);
+        mock.Setup(o => o.GetFolderPath(Environment.SpecialFolder.UserProfile)).Returns(TestProfileDirectory);
         return mock;
     }
 }

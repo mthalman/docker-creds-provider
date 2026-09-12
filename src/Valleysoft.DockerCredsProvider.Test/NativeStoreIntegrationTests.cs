@@ -46,7 +46,11 @@ public class NativeStoreIntegrationTests
     [Theory]
     [InlineData("missing-username", "Username")]
     [InlineData("missing-secret", "Secret")]
-    public async Task GetCredentialsAsync_RejectsMissingRequiredField(
+    [InlineData("null-username", "Username")]
+    [InlineData("null-secret", "Secret")]
+    [InlineData("numeric-username", "Username")]
+    [InlineData("object-secret", "Secret")]
+    public async Task GetCredentialsAsync_RejectsMissingOrInvalidRequiredField(
         string registry,
         string expectedField)
     {
@@ -56,7 +60,8 @@ public class NativeStoreIntegrationTests
             () => store.GetCredentialsAsync(registry, CancellationToken.None));
 
         Assert.Contains(expectedField, exception.Message);
-        Assert.DoesNotContain("fixture-secret", exception.Message);
+        Assert.Contains("docker-credential-test", exception.Message);
+        Assert.DoesNotContain("fixture-secret", exception.ToString());
     }
 
     [Theory]
@@ -72,7 +77,7 @@ public class NativeStoreIntegrationTests
             () => store.GetCredentialsAsync(registry, CancellationToken.None));
 
         Assert.Contains(expectedMessage, exception.Message);
-        Assert.DoesNotContain("fixture-secret", exception.Message);
+        Assert.DoesNotContain("fixture-secret", exception.ToString());
     }
 
     [Fact]
@@ -85,8 +90,8 @@ public class NativeStoreIntegrationTests
 
         Assert.Contains("docker-credential-test", exception.Message);
         Assert.Contains("code 17", exception.Message);
-        Assert.DoesNotContain("fixture-stdout-secret", exception.Message);
-        Assert.DoesNotContain("fixture-stderr-secret", exception.Message);
+        Assert.DoesNotContain("fixture-stdout-secret", exception.ToString());
+        Assert.DoesNotContain("fixture-stderr-secret", exception.ToString());
     }
 
     [Theory]
