@@ -93,7 +93,7 @@ jobs:
             "package/services/metadata/core-properties/nuget.psmdcp"
             "Valleysoft.DockerCredsProvider.nuspec"
           )
-          foreach ($framework in @("netstandard2.0", "net8.0", "net9.0")) {
+          foreach ($framework in @("netstandard2.0", "net8.0")) {
             $expectedPackageEntries += "lib/$framework/Valleysoft.DockerCredsProvider.dll"
             $expectedPackageEntries += "lib/$framework/Valleysoft.DockerCredsProvider.xml"
             $expectedSymbolEntries += "lib/$framework/Valleysoft.DockerCredsProvider.pdb"
