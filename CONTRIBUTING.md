@@ -149,7 +149,8 @@ standard. GitHub Releases remain this repository's changelog.
 not change .NET package versions or publish anything. Install Python 3.13.
 
 Replace `v2.3.0` with the previous published release tag. Commit your fragment
-before previewing: the helper reads the selected commit, not uncommitted files.
+before previewing: the helper reads fragments, Towncrier configuration, and the
+template from the selected commit, not uncommitted files.
 It renders only fragments absent from that release and present at `HEAD`.
 The tag must exist locally and be an ancestor of `HEAD`. Missing or unrelated
 release history is an error, not a reason to include old notes.

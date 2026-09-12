@@ -353,6 +353,23 @@ class MigrationNotesTests(unittest.TestCase):
         self.note(text="Uncommitted invalid content")
         self.assertIn(NOTE.strip(), render(self.repo, self.base, head))
 
+    def test_render_uses_selected_config_and_template(self):
+        self.configure_renderer()
+        self.note()
+        head = self.commit()
+        expected = render(self.repo, self.base, head)
+        for name in ("towncrier.toml", ".github/migration-notes.md.jinja"):
+            original = (self.repo / name).read_text(encoding="utf-8")
+            for committed in (False, True):
+                with self.subTest(file=name, committed=committed):
+                    self.write(name, "Invalid content outside the selected commit.")
+                    if committed:
+                        self.commit()
+                    try:
+                        self.assertEqual(render(self.repo, self.base, head), expected)
+                    finally:
+                        self.write(name, original)
+
     def test_cli_renders_exact_preview_boundary(self):
         with patch("migration_notes.os.environ", {
             "RELEASE_PREVIEW": "<!-- migration-base: v2.3.0 -->\n",

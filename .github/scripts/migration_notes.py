@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -134,7 +133,7 @@ def render(repo: Path, base: str | None, head: str) -> str:
         for config in ("towncrier.toml", ".github/migration-notes.md.jinja"):
             target = staging / config
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(repo / config, target)
+            target.write_text(git(repo, "show", f"{head}:{config}"), encoding="utf-8")
         for name in sorted(names):
             text = git(repo, "show", f"{head}:{name}")
             validate_fragment(name, text)
