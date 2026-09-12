@@ -50,10 +50,14 @@ contents on Linux.
 Every pull request labeled `semver:major` must add a new file named
 `.changes/+short-description.breaking.md`. Use a unique, lowercase, hyphenated
 description; the `+` allows authoring before a PR number exists.
+The slug becomes the published topic's filename, so choose a stable description.
+Do not use `readme`, which is reserved for each version's topic index.
 
 These fragments are authoring inputs, not the reader-facing documentation.
-[Migration guides](docs/migrations/README.md) group the published instructions
-by release version. Do not manually edit the generated guides or their index.
+[Migration guides](docs/migrations/README.md) group individual topic documents
+inside version directories, such as
+`docs/migrations/3.0.0/credential-helper-errors.md`. Each version has a
+`README.md` topic index. Do not manually edit these generated files.
 Use absolute URLs in fragment links so they also work in release notes and
 versioned guides.
 
@@ -76,7 +80,7 @@ The **Validate migration notes** check requires a new fragment for major PRs,
 rejects `skip-changelog` on those PRs, and validates the filename and required
 sections of every added or edited fragment, including on non-major PRs. It
 rejects empty sections, bare TODO/TBD/N/A placeholders, and reserved
-`migration-notes` start/end markers. Reviewers must still check technical
+`migration-notes` start/end and `migration-topic` markers. Reviewers must still check technical
 accuracy and completeness; tooling does not infer instructions from code.
 
 Keep fragments in Git after publication. Do not delete, rename, or reuse them
@@ -104,5 +108,5 @@ release history is an error, not a reason to include old notes.
 The helper stages those fragments in a temporary directory and runs Towncrier
 in `--draft` mode. It does not delete fragments, create tags, or alter the
 working tree. After publication, automation opens a draft documentation PR
-containing the versioned guide and updated index, copied from the migration
-section in the published release notes.
+containing individual topic files in the version's directory and updated
+indexes, copied from the migration section in the published release notes.

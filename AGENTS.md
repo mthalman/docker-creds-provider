@@ -48,13 +48,16 @@ maintain migration prose in the draft release. Release Drafter receives
 Towncrier-generated notes on every run and excludes already released fragments.
 Do not label a breaking-change PR `skip-changelog`.
 
-Reader-facing guides live at `docs/migrations/<version>.md`, with an index in
-`docs/migrations/README.md`. They are generated from published release notes by
+Reader-facing topics live at `docs/migrations/<version>/<fragment-slug>.md`,
+with a `README.md` topic index inside each version directory and a version index
+in `docs/migrations/README.md`. They are generated from published release notes by
 the Migration guides workflow, which opens a draft documentation PR. Do not
 edit them independently or put authoring instructions in that directory.
 For unpublished changes, edit the fragment; for published corrections, update
 the release's migration section and rerun Migration guides. Preserve its
-`migration-notes` start/end markers.
+`migration-notes` start/end markers and `migration-topic` slug markers. Topic
+filenames come from fragment slugs, not titles; `readme` is reserved for the
+version index.
 
 When changing migration tooling, run its tests from the repository root:
 

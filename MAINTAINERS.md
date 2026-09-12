@@ -106,14 +106,18 @@ not create tags, publish releases, or change MinVer's version calculation.
 ### Archive guides by release version
 
 Authors maintain fragments in `.changes/`. Readers use
-[`docs/migrations/README.md`](docs/migrations/README.md), which links to one guide
-per release version, such as `docs/migrations/3.0.0.md`.
+[`docs/migrations/README.md`](docs/migrations/README.md), which links to version
+directories. Each directory contains a `README.md` topic index and one document
+per migration topic, such as
+`docs/migrations/3.0.0/credential-helper-errors.md`.
 
 The **Migration guides** workflow reads the marked migration section from each
-published stable release, generates the versioned files and index, and opens or
+published stable release, generates the topic files and indexes, and opens or
 updates one draft documentation PR on `automation/migration-guides`. Only
 `docs/migrations/` is committed. Versions without migration instructions are
-omitted, and previously archived guides are retained. Repeated runs produce no
+omitted, and previously archived version directories are retained. Within a
+regenerated version, topics removed from the published migration section are
+also removed from that directory. Repeated runs produce no
 changes unless published migration text or the set of releases changed.
 
 The workflow runs on publication, after the Release workflow completes, and
@@ -135,9 +139,11 @@ Merge the PR after its checks pass. The workflow never commits directly to
 Published GitHub Releases remain the source of truth for archived guides.
 For corrections, edit that release's migration section while preserving its
 `<!-- migration-notes:start -->` and `<!-- migration-notes:end -->` markers,
+and the `<!-- migration-topic: fragment-slug -->` marker before each topic,
 then rerun Migration guides. Do not separately edit generated guides or the
 index. Releases predating this system without markers are left alone; malformed
-markers fail generation rather than producing an incomplete guide.
+markers fail generation rather than producing incomplete topic documents.
+Topic filenames retain their fragment slugs even if a topic's title changes.
 
 ## Configure trusted publishing
 

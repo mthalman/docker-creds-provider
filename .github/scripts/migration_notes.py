@@ -14,6 +14,7 @@ FILENAME = re.compile(r"\+[a-z0-9]+(?:-[a-z0-9]+)*\.breaking\.md")
 STABLE_TAG = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 MIGRATION_START = "<!-- migration-notes:start -->"
 MIGRATION_END = "<!-- migration-notes:end -->"
+TOPIC_MARKER_PREFIX = "<!-- migration-topic:"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -35,7 +36,9 @@ def validate_fragment(name: str, text: str) -> None:
             f"Invalid migration fragment filename: {name}. "
             f"Use {FRAGMENTS}/+short-description.breaking.md."
         )
-    if MIGRATION_START in text or MIGRATION_END in text:
+    if Path(name).name == "+readme.breaking.md":
+        raise ValueError(f"{name}: migration fragment filename 'readme' is reserved for the version index.")
+    if MIGRATION_START in text or MIGRATION_END in text or TOPIC_MARKER_PREFIX in text:
         raise ValueError(f"{name}: migration fragment contains a reserved release-note marker.")
     if not re.match(r"### [^\n]+\n", text):
         raise ValueError(f"{name}: migration fragment must start with a level-three title.")
@@ -89,6 +92,8 @@ def render(repo: Path, base: str | None, head: str) -> str:
         for name in sorted(names):
             text = git(repo, "show", f"{head}:{name}")
             validate_fragment(name, text)
+            slug = Path(name).name.removeprefix("+").removesuffix(".breaking.md")
+            text = f"{TOPIC_MARKER_PREFIX} {slug} -->\n{text}"
             target = staging / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")

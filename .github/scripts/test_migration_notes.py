@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from migration_notes import MIGRATION_END, MIGRATION_START, check_pr, main, previous_tag, render
-from migration_guides import guide_documents, index_document, migration_section, write_guides
+from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render
+from migration_guides import guide_documents, index_document, migration_section, migration_topics, write_guides
 from update_release_draft import combine_notes, update_draft
 
 
@@ -155,8 +155,10 @@ class MigrationNotesTests(unittest.TestCase):
         self.note("second", NOTE.replace("Credential helper errors", "Another change"))
         head = self.commit()
         output = render(self.repo, None, head)
-        self.assertTrue(output.startswith("## Breaking changes and migration\n\n### "))
-        self.assertIn("inner exception.\n\n### ", output)
+        self.assertTrue(output.startswith("## Breaking changes and migration\n\n<!-- migration-topic: "))
+        self.assertIn("inner exception.\n\n<!-- migration-topic: ", output)
+        topics = migration_topics(output.strip())
+        self.assertEqual(set(topics), {"first", "second"})
         self.assertEqual(output, render(self.repo, None, head))
 
     def test_unicode_and_drafter_tokens_survive_full_markdown_pipeline(self):
@@ -196,7 +198,14 @@ class MigrationNotesTests(unittest.TestCase):
             render(self.repo, self.base, self.commit())
 
     def test_reserved_migration_markers_are_rejected_in_fragments(self):
-        self.note(text=NOTE + MIGRATION_START)
+        for marker in (MIGRATION_START, TOPIC_MARKER_PREFIX):
+            with self.subTest(marker=marker):
+                self.note(text=NOTE + marker)
+                with self.assertRaisesRegex(ValueError, "reserved"):
+                    check_pr(self.repo, self.base, self.commit(), ["semver:major"])
+
+    def test_readme_fragment_name_is_reserved(self):
+        self.note("readme")
         with self.assertRaisesRegex(ValueError, "reserved"):
             check_pr(self.repo, self.base, self.commit(), ["semver:major"])
 
@@ -286,7 +295,8 @@ class MigrationGuideTests(unittest.TestCase):
             "tag_name": tag, "draft": False, "prerelease": False,
             "body": combine_notes(
                 "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Product fix",
-                "## Breaking changes and migration\n\n" + NOTE,
+                "## Breaking changes and migration\n\n"
+                "<!-- migration-topic: credential-helper-errors -->\n" + NOTE,
             ),
             **overrides,
         }
@@ -294,11 +304,48 @@ class MigrationGuideTests(unittest.TestCase):
     def test_guide_contains_only_published_migration_section(self):
         guides = guide_documents([self.release()], "owner/repo")
         self.assertEqual(set(guides), {"3.0.0"})
-        self.assertTrue(guides["3.0.0"].startswith("# Upgrade to 3.0.0\n\n"))
-        self.assertIn("https://github.com/owner/repo/releases/tag/v3.0.0", guides["3.0.0"])
-        self.assertIn(NOTE.strip(), guides["3.0.0"])
-        self.assertNotIn("What's Changed", guides["3.0.0"])
-        self.assertNotIn("migration-notes:", guides["3.0.0"])
+        topic = guides["3.0.0"]["credential-helper-errors.md"]
+        self.assertEqual(set(guides["3.0.0"]), {"credential-helper-errors.md", "README.md"})
+        self.assertTrue(topic.startswith("# Upgrade to 3.0.0\n\n"))
+        self.assertIn("https://github.com/owner/repo/releases/tag/v3.0.0", topic)
+        self.assertIn(NOTE.strip(), topic)
+        self.assertNotIn("What's Changed", topic)
+        self.assertNotIn("migration-notes:", topic)
+        self.assertNotIn("migration-topic:", topic)
+        self.assertIn("[Credential helper errors](credential-helper-errors.md)", guides["3.0.0"]["README.md"])
+
+    def test_multiple_topics_generate_individual_files_and_version_index(self):
+        release = self.release()
+        second = "<!-- migration-topic: registry-matching -->\n" + NOTE.replace(
+            "Credential helper errors", "Registry matching"
+        ) + "\n```markdown\n### This heading is a code example, not another topic\n```\n"
+        release["body"] = release["body"].replace(MIGRATION_END, second + MIGRATION_END)
+        documents = guide_documents([release], "owner/repo")["3.0.0"]
+        self.assertEqual(set(documents), {"credential-helper-errors.md", "registry-matching.md", "README.md"})
+        self.assertNotIn("Registry matching", documents["credential-helper-errors.md"])
+        self.assertNotIn("Credential helper errors", documents["registry-matching.md"])
+        self.assertIn("[Registry matching](registry-matching.md)", documents["README.md"])
+        self.assertIn(
+            "```markdown\n### This heading is a code example, not another topic\n```",
+            documents["registry-matching.md"],
+        )
+
+    def test_topic_title_edit_preserves_filename(self):
+        release = self.release()
+        release["body"] = release["body"].replace("Credential helper errors", "New [title]")
+        documents = guide_documents([release], "owner/repo")["3.0.0"]
+        self.assertIn("credential-helper-errors.md", documents)
+        self.assertIn("[New \\[title\\]](credential-helper-errors.md)", documents["README.md"])
+
+    def test_unsafe_reserved_duplicate_and_missing_topic_markers_fail(self):
+        for section in (
+            "## Breaking changes and migration\n\n" + NOTE,
+            "## Breaking changes and migration\n\n<!-- migration-topic: ../escape -->\n" + NOTE,
+            "## Breaking changes and migration\n\n<!-- migration-topic: readme -->\n" + NOTE,
+            "## Breaking changes and migration\n\n" + ("<!-- migration-topic: duplicate -->\n" + NOTE) * 2,
+        ):
+            with self.subTest(section=section), self.assertRaisesRegex(ValueError, "topic"):
+                migration_topics(section)
 
     def test_skips_drafts_prereleases_and_releases_without_migration_notes(self):
         releases = [
@@ -334,21 +381,21 @@ class MigrationGuideTests(unittest.TestCase):
         index = index_document({"3.0.0", "10.0.0", "4.0.0"})
         self.assertLess(index.index("10.0.0"), index.index("4.0.0"))
         self.assertLess(index.index("4.0.0"), index.index("3.0.0"))
-        self.assertIn("[Upgrade to 3.0.0](3.0.0.md)", index)
+        self.assertIn("[Upgrade to 3.0.0](3.0.0/README.md)", index)
 
     def test_generation_is_idempotent_and_retains_archived_guides(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             write_guides(repo, [self.release()], "owner/repo")
-            files = sorted((repo / "docs/migrations").glob("*.md"))
-            before = {path.name: path.read_bytes() for path in files}
+            files = sorted((repo / "docs/migrations").rglob("*.md"))
+            before = {path.relative_to(repo): path.read_bytes() for path in files}
             write_guides(repo, [self.release()], "owner/repo")
-            self.assertEqual(before, {path.name: path.read_bytes() for path in files})
+            self.assertEqual(before, {path.relative_to(repo): path.read_bytes() for path in files})
             write_guides(repo, [self.release("v4.0.0")], "owner/repo")
-            self.assertTrue((repo / "docs/migrations/3.0.0.md").exists())
+            self.assertTrue((repo / "docs/migrations/3.0.0/credential-helper-errors.md").exists())
             index = (repo / "docs/migrations/README.md").read_text(encoding="utf-8")
-            self.assertIn("3.0.0.md", index)
-            self.assertIn("4.0.0.md", index)
+            self.assertIn("3.0.0/README.md", index)
+            self.assertIn("4.0.0/README.md", index)
 
     def test_corrected_release_updates_guide_without_duplicate_entries(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -357,12 +404,23 @@ class MigrationGuideTests(unittest.TestCase):
             corrected = self.release()
             corrected["body"] = corrected["body"].replace("new exception type", "corrected exception type")
             write_guides(repo, [corrected], "owner/repo")
-            guide = (repo / "docs/migrations/3.0.0.md").read_text(encoding="utf-8")
+            guide = (repo / "docs/migrations/3.0.0/credential-helper-errors.md").read_text(encoding="utf-8")
             self.assertIn("corrected exception type", guide)
             self.assertEqual(guide.count("# Upgrade to 3.0.0"), 1)
 
+    def test_removed_published_topic_is_removed_only_from_its_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            release = self.release()
+            second = "<!-- migration-topic: removed-topic -->\n" + NOTE
+            release["body"] = release["body"].replace(MIGRATION_END, second + MIGRATION_END)
+            write_guides(repo, [release, self.release("v4.0.0")], "owner/repo")
+            write_guides(repo, [self.release()], "owner/repo")
+            self.assertFalse((repo / "docs/migrations/3.0.0/removed-topic.md").exists())
+            self.assertTrue((repo / "docs/migrations/4.0.0/credential-helper-errors.md").exists())
+
     def test_reader_index_matches_checked_in_versioned_guides(self):
-        versions = {path.stem for path in (ROOT / "docs/migrations").glob("[0-9]*.md")}
+        versions = {path.parent.name for path in (ROOT / "docs/migrations").glob("*/README.md")}
         self.assertEqual(
             index_document(versions),
             (ROOT / "docs/migrations/README.md").read_text(encoding="utf-8"),
