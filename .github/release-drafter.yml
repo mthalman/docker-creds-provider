@@ -10,23 +10,17 @@ categories:
   - title: "Features"
     exclusive: true
     when:
-      labels:
-        - enhancement
-        - type:feature
+      label: enhancement
 
   - title: "Bug Fixes"
     exclusive: true
     when:
-      labels:
-        - bug
-        - type:bug
+      label: bug
 
   - title: "Documentation"
     exclusive: true
     when:
-      labels:
-        - documentation
-        - type:docs
+      label: documentation
 
   - title: "Dependencies"
     exclusive: true

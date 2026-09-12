@@ -8,58 +8,43 @@ from Docker-compatible configuration.
 
 ## Install the package
 
-Install
-[Valleysoft.DockerCredsProvider](https://www.nuget.org/packages/Valleysoft.DockerCredsProvider/)
-from NuGet:
-
 ```console
 dotnet add package Valleysoft.DockerCredsProvider
 ```
 
 ## Retrieve credentials
 
-Pass a registry name or URL to `CredsProvider.GetCredentialsAsync`:
-
 ```csharp
 using Valleysoft.DockerCredsProvider;
 
 DockerCredentials credentials =
     await CredsProvider.GetCredentialsAsync("contoso.azurecr.io");
+
+string username = credentials.Username;
+string? password = credentials.Password;
+string? identityToken = credentials.IdentityToken;
 ```
 
-Pass a cancellation token to stop credential retrieval when the calling
-operation is canceled:
+Pass a registry hostname or HTTP(S) URL. The library retrieves configured
+credentials; it does not authenticate with the registry.
 
-```csharp
-DockerCredentials credentials =
-    await CredsProvider.GetCredentialsAsync("contoso.azurecr.io", cancellationToken);
-```
+## Configuration
 
-The returned `DockerCredentials` object provides the username and either a
-password or identity token. The library follows
-[Docker's credential configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
-to locate the credentials.
+The library supports native credential helpers and inline credentials in
+[Docker configuration](https://docs.docker.com/reference/cli/docker/login/#credential-stores)
+and [containers/Podman auth files](https://github.com/containers/image/blob/main/docs/containers-auth.json.5.md).
 
-If `REGISTRY_AUTH_FILE` is set, the library checks only that file. Otherwise,
-it checks these locations in order:
+Containers auth files are checked before Docker configuration. Set
+`REGISTRY_AUTH_FILE` to use only a specific auth file, or `DOCKER_CONFIG` to
+change the Docker configuration directory.
 
-1. `$XDG_RUNTIME_DIR/containers/auth.json`, when `XDG_RUNTIME_DIR` is set.
-2. The persistent containers auth file: `$XDG_CONFIG_HOME/containers/auth.json`
-   when `XDG_CONFIG_HOME` is set, `$XDG_CONFIG_DIR/containers/auth.json` when
-   it is not, or `$HOME/.config/containers/auth.json` when neither variable is
-   set. `XDG_CONFIG_DIR` is deprecated and supported only as a compatibility
-   alias.
-3. `$DOCKER_CONFIG/config.json`, or `$HOME/.docker/config.json` when
-   `DOCKER_CONFIG` is unset.
-
-Native credential helpers have a 30-second timeout; an expired timeout throws
-`TimeoutException`, while caller cancellation throws
-`OperationCanceledException`.
+Prefer [credential helpers](https://docs.docker.com/reference/cli/docker/login/#credential-helpers)
+over inline credentials: Base64 is not encryption. Never commit or log
+passwords or identity tokens.
 
 ## Contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the local build and test workflow.
-See [MAINTAINERS.md](MAINTAINERS.md) for release labeling and publishing.
 
 ## License
 

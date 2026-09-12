@@ -5,32 +5,29 @@ or submit a pull request with a focused implementation.
 
 ## Prerequisites
 
-Install the .NET SDK version selected by [`global.json`](global.json). Run
-`dotnet --version` from the repository root to confirm that a compatible SDK
-is installed. Download .NET SDKs from the
+Install Git and a stable .NET SDK compatible with [`global.json`](global.json).
+Download the SDK from the
 [.NET download page](https://dotnet.microsoft.com/download).
-
-Docker is not required to run the automated tests because the test suite mocks
-configuration files and credential helper processes.
+[`global.json`](global.json) uses `latestFeature` to select the highest
+installed compatible feature band and patch.
 
 ## Build and test locally
 
-From the repository root, run the same commands used by CI (CI sets `src` as the working directory):
+From the repository root, run the same commands used by CI (CI sets `src` as
+the working directory). Restore requires access to NuGet.org:
 
-    cd src
-    dotnet restore
-    dotnet build -c Release --no-restore
-    dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
+```console
+cd src
+dotnet restore
+dotnet build -c Release --no-restore
+dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
+```
 
-A successful test run reports no failed tests.
+To create the same package artifacts validated by CI, continue from `src`:
 
-To create the same package artifacts validated by CI, continue with:
-
-    dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
-
-Packing validates the public API against the latest stable compatibility
-baseline. The `package-output` directory will contain both a `.nupkg` and its
-matching `.snupkg` symbol package.
+```console
+dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
+```
 
 ## Submit a pull request
 
@@ -43,4 +40,5 @@ Before opening a pull request:
 4. Keep the pull request focused on one change and explain its user-visible
    effect.
 
-CI builds and tests pull requests on Linux and Windows.
+CI builds and tests pull requests on Linux and Windows, and validates package
+contents on Linux.
