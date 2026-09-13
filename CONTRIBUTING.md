@@ -108,8 +108,13 @@ with absolute links to the implementing PR, issue, or related documentation
 when available. Do not guess a PR number or release version: Release Drafter's
 dry-run preview supplies the version context, and generated topic documents
 include **Version introduced** from its computed tag. Guides do not link to a
-release that does not yet exist. The topic title becomes the concise linked
-summary in release notes, so make it meaningful without the topic body.
+release that does not yet exist. The topic title becomes the generated guide's
+top-level title and the concise linked summary in release notes, so make it
+meaningful without the topic body. Only the version index uses
+`Upgrade to <version>` as its title. Generated topics promote level-four sections
+to level two and nested level-five/six headings to level three/four, without
+repeating the title or the release-note section heading. Headings inside fenced
+examples remain unchanged; source fragments keep their original heading levels.
 
 The **Validate migration notes** check requires a new fragment for major PRs,
 rejects `skip-changelog` on those PRs, and validates the filename and required
@@ -131,6 +136,8 @@ instructions from code.
 The policy runs the validator from the PR's base revision and reads PR commits
 as Git data without checking them out or executing their code. Changing the
 validator in a PR cannot change the policy applied to that PR.
+Merge validator support for a new generated topic format into `main` before
+regenerating the documentation PR in that format.
 The separate **Test migration tooling** job tests the proposed tooling changes
 and dependencies in the ordinary `pull_request` workflow.
 
@@ -197,7 +204,8 @@ in `--draft` mode. It does not delete fragments, create tags, or alter the
 working tree. In automation, Release Drafter uses the same selected fragments
 to generate versioned topics before publication. Towncrier's Markdown,
 including fenced and nested examples, is preserved rather than processed as
-a Release Drafter template.
+a Release Drafter template. Only document heading levels are adjusted for
+standalone topic pages; fenced example contents are unchanged.
 
 Release Drafter opens or updates a draft documentation PR containing the topic
 files, indexes, and `.github/migration-guides.json` state. Its `pending_versions`

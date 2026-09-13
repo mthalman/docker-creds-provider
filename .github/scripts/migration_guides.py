@@ -4,7 +4,7 @@ from pathlib import Path
 
 from migration_notes import (
     FRAGMENTS, GUIDE_STATE as STATE, STABLE_TAG, TOPIC_MARKER_PREFIX, git,
-    pending_guide_versions, validate_fragment, validate_guide,
+    pending_guide_versions, shift_heading_levels, validate_fragment, validate_guide,
 )
 
 
@@ -49,10 +49,11 @@ def guide_documents(notes: str, tag: str) -> dict[str, str]:
     documents = {}
     links = []
     for slug, (title, text) in topics.items():
+        body = shift_heading_levels(text.split("\n", 1)[1].lstrip("\n"), -2)
         documents[f"{slug}.md"] = (
-            f"# Upgrade to {version}\n\n"
+            f"# {title}\n\n"
             f"**Version introduced:** {version}\n\n"
-            f"## Breaking changes and migration\n\n{text}\n"
+            f"{body}\n"
         )
         links.append(f"- [{link_label(title)}]({slug}.md)")
     documents["README.md"] = (

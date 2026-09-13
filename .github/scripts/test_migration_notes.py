@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render, validate_fragment, validate_guide
+from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render, shift_heading_levels, validate_fragment, validate_guide
 from migration_guides import guide_documents, guides_ready, index_document, linked_notes, migration_topics, plan_guides, write_guides
 from update_release_draft import combine_notes, process_preview, restore_complete_history, update_draft, verify_main
 
@@ -357,7 +357,10 @@ class MigrationNotesTests(unittest.TestCase):
         combined = combine_notes(preview, linked_notes(notes, "v3.0.0", "owner/repo"))
         self.assertNotIn(text.strip(), combined)
         self.assertTrue(combined.endswith(f"{MIGRATION_END}\n\n## What's Changed\n\n- Existing PR\n"))
-        self.assertIn(text.strip(), guide_documents(notes, "v3.0.0")["helper.md"])
+        self.assertIn(
+            text.split("\n", 1)[1].strip().replace("#### ", "## "),
+            guide_documents(notes, "v3.0.0")["helper.md"],
+        )
         self.assertNotIn("migration-base:", combined)
 
     def test_render_uses_committed_note_not_working_tree(self):
@@ -442,7 +445,7 @@ class MigrationNotesTests(unittest.TestCase):
         notes = render(self.repo, self.base, head)
         plan = plan_guides(self.repo, head, notes, "v3.0.0", [])
         topic_path = "docs/migrations/3.0.0/helper.md"
-        self.assertIn(NOTE.strip(), plan[topic_path])
+        self.assertIn(NOTE.split("\n", 1)[1].strip().replace("#### ", "## "), plan[topic_path])
         self.assertIn('echo "$OWNER"', plan[topic_path])
         self.assertIn("**Version introduced:** 3.0.0", plan[topic_path])
         self.assertNotIn("/releases/tag/", plan[topic_path])
@@ -740,7 +743,7 @@ class MigrationNotesTests(unittest.TestCase):
         check_pr(self.repo, self.base, base, ["semver:patch"])
         text = (self.repo / "docs/migrations/3.0.0/helper.md").read_text()
         self.write("docs/migrations/3.0.0/helper.md", text.replace(
-            "Catch the new exception type and inspect its inner exception.", "##### Before"
+            "Catch the new exception type and inspect its inner exception.", "### Before"
         ))
         with self.assertRaisesRegex(ValueError, "Recommended action"):
             check_pr(self.repo, base, self.commit(), ["semver:patch"])
@@ -934,6 +937,19 @@ class DraftUpdateTests(unittest.TestCase):
         api.assert_called_once_with(self.endpoint)
 
 
+class MarkdownHeadingTests(unittest.TestCase):
+    def test_shifting_preserves_heading_spacing_and_line_endings(self):
+        text = "   ####\tTitle ###\r\n\r\n    #### Indented code\r\n#####\r\n"
+        expected = "   ##\tTitle ###\r\n\r\n    #### Indented code\r\n###\r\n"
+        self.assertEqual(shift_heading_levels(text, -2), expected)
+        self.assertEqual(shift_heading_levels(expected, 2), text)
+
+    def test_shifting_rejects_levels_outside_markdown_range(self):
+        for text, offset in (("## Too shallow\n", -2), ("##### Too deep\n", 2)):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "Cannot shift Markdown heading"):
+                shift_heading_levels(text, offset)
+
+
 class MigrationGuideTests(unittest.TestCase):
     def notes(self, text=NOTE):
         return (
@@ -945,28 +961,71 @@ class MigrationGuideTests(unittest.TestCase):
         guides = guide_documents(self.notes(), "v3.0.0")
         topic = guides["credential-helper-errors.md"]
         self.assertEqual(set(guides), {"credential-helper-errors.md", "README.md"})
-        self.assertTrue(topic.startswith("# Upgrade to 3.0.0\n\n"))
+        self.assertEqual(
+            topic,
+            "# Credential helper errors\n\n**Version introduced:** 3.0.0\n\n"
+            + NOTE.split("\n", 1)[1].lstrip("\n").replace("#### ", "## "),
+        )
         self.assertIn("**Version introduced:** 3.0.0\n", topic)
         self.assertNotIn("/releases/tag/", topic)
-        self.assertIn(NOTE.strip(), topic)
         self.assertNotIn("What's Changed", topic)
         self.assertNotIn("migration-notes:", topic)
         self.assertNotIn("migration-topic:", topic)
+        self.assertTrue(guides["README.md"].startswith("# Upgrade to 3.0.0\n\n"))
         self.assertIn("[Credential helper errors](credential-helper-errors.md)", guides["README.md"])
+
+    def test_topic_introduction_is_preserved_without_repeating_title(self):
+        introduction = "This change affects applications that invoke credential helpers."
+        notes = self.notes(NOTE.replace(
+            "### Credential helper errors\n", f"### Credential helper errors\n\n{introduction}\n"
+        ))
+        topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
+        self.assertIn(f"**Version introduced:** 3.0.0\n\n{introduction}\n\n## Previous behavior", topic)
+        self.assertEqual(topic.count("Credential helper errors"), 1)
+        validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
+
+    def test_existing_guide_format_remains_valid(self):
+        topic = (
+            "# Upgrade to 3.0.0\n\n**Version introduced:** 3.0.0\n\n"
+            "## Breaking changes and migration\n\n" + NOTE
+        )
+        for preamble in ("", "```markdown\n## Breaking changes and migration\n```\n\n"):
+            with self.subTest(preamble=preamble):
+                validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", preamble + topic)
+        with self.assertRaisesRegex(ValueError, "Recommended action"):
+            validate_guide(
+                "docs/migrations/3.0.0/credential-helper-errors.md",
+                topic.replace("#### Recommended action", "#### Details"),
+            )
 
     def test_versioned_topics_require_the_same_sections_as_fragments(self):
         for heading in REQUIRED_HEADINGS:
             with self.subTest(heading=heading):
                 topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
-                topic = topic.replace(f"#### {heading}", f"#### Omitted {heading}")
+                topic = topic.replace(f"## {heading}", f"## Omitted {heading}")
                 with self.assertRaisesRegex(ValueError, heading):
                     validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
+
+    def test_standalone_topics_require_level_two_sections(self):
+        for heading in REQUIRED_HEADINGS:
+            with self.subTest(heading=heading):
+                topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+                topic = topic.replace(f"## {heading}", f"#### {heading}")
+                with self.assertRaisesRegex(ValueError, heading):
+                    validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
+
+    def test_standalone_topics_require_documented_section_order(self):
+        topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+        title, *sections = topic.split("\n## ")
+        reordered = "\n## ".join([title, sections[1], sections[0], *sections[2:]])
+        with self.assertRaisesRegex(ValueError, "required sections must appear in this order"):
+            validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", reordered)
 
     def test_versioned_topic_heading_must_be_outside_fences(self):
         topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
         for fence in ("```", "~~~~", "   ```"):
             with self.subTest(fence=fence):
-                with self.assertRaisesRegex(ValueError, "section heading"):
+                with self.assertRaisesRegex(ValueError, "heading"):
                     validate_guide(
                         "docs/migrations/3.0.0/credential-helper-errors.md",
                         f"{fence}markdown\n{topic}{fence}\n",
@@ -979,7 +1038,7 @@ class MigrationGuideTests(unittest.TestCase):
 
     def test_fenced_preamble_cannot_supply_missing_topic_sections(self):
         topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
-        invalid_topic = topic.replace("#### Recommended action", "#### Details")
+        invalid_topic = topic.replace("## Recommended action", "## Details")
         with self.assertRaisesRegex(ValueError, "Recommended action"):
             validate_guide(
                 "docs/migrations/3.0.0/credential-helper-errors.md",
@@ -1007,8 +1066,39 @@ class MigrationGuideTests(unittest.TestCase):
             "Catch the new exception type and inspect its inner exception.", section
         )
         topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
-        self.assertIn(section, topic)
+        self.assertIn("### Before\n\nUse the old API.\n\n#### After\n\n```csharp\nNewApi();\n```", topic)
+        self.assertEqual(
+            [line for line in topic.splitlines() if line.startswith("#")],
+            [
+                "# Credential helper errors",
+                "## Previous behavior",
+                "## New behavior",
+                "## Type of breaking change",
+                "## Reason for change",
+                "## Recommended action",
+                "### Before",
+                "#### After",
+                "## Affected APIs",
+            ],
+        )
         validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
+
+    def test_heading_promotion_preserves_fenced_markdown(self):
+        for fence, content, close in (
+            ("```", "#### Example\n##### Nested example", "```"),
+            ("~~~", "#### Example\n##### Nested example", "~~~"),
+            ("````", "```\n#### Still fenced\n~~~~\n##### Still fenced", "````"),
+            ("   ```", "#### Example\n##### Nested example", "   ````"),
+        ):
+            with self.subTest(fence=fence):
+                example = f"{fence}markdown\n{content}\n{close}"
+                section = f"##### Before\n\n{example}\n\n###### After\n\nUse the new API."
+                notes = self.notes().replace(
+                    "Catch the new exception type and inspect its inner exception.", section
+                )
+                topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
+                self.assertIn(f"### Before\n\n{example}\n\n#### After\n\nUse the new API.", topic)
+                validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
 
     def test_version_introduced_comes_from_computed_tag(self):
         for tag in ("v3.0.0", "v10.2.1"):
@@ -1023,6 +1113,8 @@ class MigrationGuideTests(unittest.TestCase):
         ) + "\n```markdown\n### This heading is a code example, not another topic\n```\n"
         documents = guide_documents(self.notes() + "\n" + second, "v3.0.0")
         self.assertEqual(set(documents), {"credential-helper-errors.md", "registry-matching.md", "README.md"})
+        self.assertTrue(documents["credential-helper-errors.md"].startswith("# Credential helper errors\n\n"))
+        self.assertTrue(documents["registry-matching.md"].startswith("# Registry matching\n\n"))
         self.assertNotIn("Registry matching", documents["credential-helper-errors.md"])
         self.assertNotIn("Credential helper errors", documents["registry-matching.md"])
         self.assertIn("[Registry matching](registry-matching.md)", documents["README.md"])
@@ -1035,6 +1127,7 @@ class MigrationGuideTests(unittest.TestCase):
         notes = self.notes().replace("Credential helper errors", "New [title]")
         documents = guide_documents(notes, "v3.0.0")
         self.assertIn("credential-helper-errors.md", documents)
+        self.assertTrue(documents["credential-helper-errors.md"].startswith("# New [title]\n\n"))
         self.assertIn("[New \\[title\\]](credential-helper-errors.md)", documents["README.md"])
         self.assertIn("[New \\[title\\]](", linked_notes(notes, "v3.0.0", "owner/repo"))
 
@@ -1079,7 +1172,8 @@ class MigrationGuideTests(unittest.TestCase):
         source = (ROOT / ".changes/+credential-helper-errors.breaking.md").read_text(encoding="utf-8")
         notes = self.notes(source)
         topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
-        self.assertIn(source.strip(), topic)
+        self.assertIn(source.split("\n", 1)[1].strip().replace("#### ", "## "), topic)
+        self.assertEqual(topic.count("Credential-helper failures use sanitized exceptions"), 1)
         summary = linked_notes(notes, "v3.0.0", "owner/repo")
         self.assertIn("Credential-helper failures use sanitized exceptions", summary)
         self.assertNotIn("InnerException", summary)
