@@ -1,4 +1,4 @@
-name-template: "Docker Creds Provider $RESOLVED_VERSION"
+name-template: "$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 tag-prefix: "v"
 
