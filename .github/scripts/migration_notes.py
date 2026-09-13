@@ -112,6 +112,12 @@ def validate_fragment(name: str, text: str) -> None:
             f"{name}: required sections must appear in this order: "
             + ", ".join(REQUIRED_SECTIONS) + "."
         )
+    for line_number, (_, heading) in enumerate(markdown_lines(text)):
+        if line_number > 0 and heading and len(heading[1]) <= 3:
+            raise ValueError(
+                f"{name}: migration fragment body headings must be level four or deeper; "
+                "only the opening title may be level three."
+            )
 
 
 def validate_guide(name: str, text: str) -> None:

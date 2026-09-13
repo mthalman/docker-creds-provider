@@ -49,6 +49,23 @@ class MigrationFormatTests(unittest.TestCase):
     def test_dotnet_format_is_valid(self):
         validate_fragment(".changes/+helper-errors.breaking.md", NOTE)
 
+    def test_body_headings_must_be_deeper_than_title(self):
+        title, body = NOTE.split("\n", 1)
+        for heading in ("# Appendix", "## Appendix", "### Another topic", "   ###\tAnother topic ###"):
+            for text in (
+                f"{title}\n\n{heading}\n\nIntroduction.\n{body}",
+                f"{NOTE}\n{heading}\n\nAdditional content.\n",
+            ):
+                with self.subTest(heading=heading, text=text):
+                    with self.assertRaisesRegex(ValueError, "body headings must be level four or deeper"):
+                        validate_fragment(".changes/+helper-errors.breaking.md", text)
+
+    def test_fenced_body_headings_are_not_restricted(self):
+        for fence in ("```", "~~~", "   ````"):
+            with self.subTest(fence=fence):
+                text = NOTE + f"\n{fence}markdown\n# Example\n## Example\n### Example\n{fence}\n"
+                validate_fragment(".changes/+helper-errors.breaking.md", text)
+
     def test_each_required_section_must_be_present(self):
         for heading in REQUIRED_HEADINGS:
             with self.subTest(heading=heading):
@@ -984,6 +1001,19 @@ class MigrationGuideTests(unittest.TestCase):
         self.assertEqual(topic.count("Credential helper errors"), 1)
         validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
 
+    def test_extra_topic_heading_is_rejected_before_generation(self):
+        notes = self.notes(NOTE + "\n### Another topic\n\nAdditional content.\n")
+        with self.assertRaisesRegex(ValueError, "body headings must be level four or deeper"):
+            guide_documents(notes, "v3.0.0")
+
+    def test_standalone_topic_rejects_additional_title(self):
+        topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+        with self.assertRaisesRegex(ValueError, "body headings must be level four or deeper"):
+            validate_guide(
+                "docs/migrations/3.0.0/credential-helper-errors.md",
+                topic + "\n# Another topic\n\nAdditional content.\n",
+            )
+
     def test_existing_guide_format_remains_valid(self):
         topic = (
             "# Upgrade to 3.0.0\n\n**Version introduced:** 3.0.0\n\n"
@@ -1085,6 +1115,8 @@ class MigrationGuideTests(unittest.TestCase):
 
     def test_heading_promotion_preserves_fenced_markdown(self):
         for fence, content, close in (
+            ("```", "# Example\n## Example\n### Example", "```"),
+            ("~~~", "# Example\n## Example\n### Example", "~~~"),
             ("```", "#### Example\n##### Nested example", "```"),
             ("~~~", "#### Example\n##### Nested example", "~~~"),
             ("````", "```\n#### Still fenced\n~~~~\n##### Still fenced", "````"),
