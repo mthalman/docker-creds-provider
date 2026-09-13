@@ -163,7 +163,7 @@ jobs:
           fi
 
           jq -n \
-            --arg name "Docker Creds Provider ${PACKAGE_VERSION}" \
+            --arg name "${PACKAGE_VERSION}" \
             --arg tag "$GITHUB_REF_NAME" \
             --arg make_latest "$make_latest" \
             --argjson prerelease "$PRERELEASE" \
