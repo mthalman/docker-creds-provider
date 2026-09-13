@@ -1,0 +1,12 @@
+[tool.towncrier]
+directory = ".changes"
+filename = "MIGRATIONS.md"
+template = ".github/migration-notes.md.jinja"
+title_format = ""
+wrap = false
+all_bullets = false
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking changes and migration"
+showcontent = true

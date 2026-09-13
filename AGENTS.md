@@ -31,7 +31,55 @@ external dependencies.
 - Keep nullable reference types and analyzers enabled.
 - Add or update tests for behavior changes.
 - Update `README.md` when installation, configuration, public API, or error
-  behavior changes.
+  behavior changes. Put upgrade-specific instructions in migration fragments,
+  not README.md.
+
+## Breaking-change migration notes
+
+For every `semver:major` pull request, add a new
+`.changes/+short-description.breaking.md` file in the same PR. Follow
+[the migration-note format](CONTRIBUTING.md#document-a-breaking-change): document the old and new
+behavior in separate `#### Previous behavior` and `#### New behavior` sections,
+then include `#### Type of breaking change`, `#### Reason for change`,
+`#### Recommended action`, and `#### Affected APIs` in that order. Identify
+affected consumers, verify both previous and current behavior, classify the
+compatibility impact, and give actionable migration and verification steps.
+Specify affected overloads; use a setting or command for non-API changes.
+Include before-and-after examples and reference links when useful. Follow
+the linked .NET-based format, not a PR summary or commit log.
+
+Use a unique lowercase slug; the filename does not need a PR number. Keep
+released fragments in Git, never rename or reuse them, and do not manually
+maintain migration prose in the draft release. Release Drafter receives
+Towncrier-generated notes on every run and excludes already released fragments.
+Do not label a breaking-change PR `skip-changelog`.
+
+Reader-facing topics live at `docs/migrations/<version>/<fragment-slug>.md`,
+with a `README.md` topic index inside each version directory and a version index
+in `docs/migrations/README.md`. They are generated from published release notes by
+the Migration guides workflow, which opens a draft documentation PR. Do not
+edit them independently or put authoring instructions in that directory.
+For unpublished changes, edit the fragment; for published corrections, update
+the release's migration section and rerun Migration guides. Preserve its
+`migration-notes` start/end markers and `migration-topic` slug markers. Topic
+filenames come from fragment slugs, not titles; `readme` is reserved for the
+version index. Do not predict a version in the fragment: published topic
+documents get **Version introduced** from their release tag. The same required
+sections are validated before rendering fragments and before archiving
+published topics; navigation indexes are exempt.
+
+Keep policy enforcement separate from tooling tests. The **Migration note
+policy** workflow uses `pull_request_target` and executes only the validator
+from the base commit. Fetch PR commits as Git data, but never check out or
+execute PR code or install PR dependencies in that job. Proposed tooling and
+dependency changes are tested separately through `pull_request`.
+
+When changing migration tooling, run its tests from the repository root:
+
+```shell
+python -m pip install -r .github/scripts/requirements.txt
+python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
+```
 
 ## Pull request labels
 

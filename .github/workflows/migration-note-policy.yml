@@ -1,0 +1,38 @@
+name: Migration note policy
+
+on:
+  pull_request_target:
+    branches: [ main ]
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-note-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  migration-note-policy:
+    name: Validate migration notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.13"
+
+      - name: Fetch pull request commit as data
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$PR_HEAD_SHA"
+
+      - name: Check pull request migration notes
+        run: python -I .github/scripts/migration_notes.py check --event "$GITHUB_EVENT_PATH"

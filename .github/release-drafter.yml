@@ -7,6 +7,11 @@ categories:
     when:
       label: skip-changelog
 
+  - title: "Breaking Changes"
+    exclusive: true
+    when:
+      label: semver:major
+
   - title: "Features"
     exclusive: true
     when:

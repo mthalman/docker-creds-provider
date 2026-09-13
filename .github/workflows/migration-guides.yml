@@ -1,0 +1,82 @@
+name: Migration guides
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: migration-guides
+  cancel-in-progress: false
+
+jobs:
+  migration-guides:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Generate versioned guides
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/migration_guides.py
+
+      - name: Open documentation pull request
+        id: docs-pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/migration-guides
+          base: main
+          delete-branch: true
+          draft: always-true
+          title: Update versioned migration guides
+          commit-message: Update versioned migration guides
+          add-paths: docs/migrations/
+          labels: |
+            semver:patch
+            documentation
+          body: |
+            ## Summary
+
+            Archive the migration sections from published GitHub Releases as
+            versioned guides and update the reader index.
+
+            These files are generated from published release notes. Make source
+            corrections there and rerun Migration guides rather than editing
+            the generated files independently.
+
+            ## Review
+
+            Mark this pull request ready for review to start CI. Automated
+            updates return it to draft so the updated content can be checked.
+
+      - name: Verify documentation pull request
+        if: >-
+          steps.docs-pr.outputs.pull-request-operation == 'created' ||
+          steps.docs-pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.docs-pr.outputs.pull-request-number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" |
+            jq -e '
+              .draft == true and
+              ([.labels[].name | select(startswith("semver:"))] == ["semver:patch"]) and
+              ([.labels[].name | select(. == "enhancement" or . == "bug" or
+                . == "documentation" or . == "dependencies")] == ["documentation"]) and
+              ([.labels[].name] | index("skip-changelog") == null)
+            '

@@ -59,6 +59,135 @@ requests without a category appear under Maintenance.
 Published GitHub Releases are the release-note system of record; this repository
 does not maintain a `CHANGELOG.md`.
 
+### Enable migration automation
+
+Complete this setup to enforce migration notes and generate documentation PRs:
+
+1. Merge the migration workflows into `main`. The policy workflow uses
+   `pull_request_target`, so it cannot run from an unmerged setup PR.
+2. Enable **Allow GitHub Actions to create and approve pull requests** in the
+   repository's Actions settings. No additional token is needed.
+3. Trigger a PR event, such as a label change or code update, and confirm that
+   **Validate migration notes** runs. Existing PRs need a new event after the
+   policy workflow is available on `main`.
+4. Require the **Validate migration notes** status check in the `main` branch
+   ruleset so a `semver:major` PR cannot merge without its migration fragment.
+
+### Automate breaking-change migration notes
+
+The **Migration note policy** workflow reruns on label changes as well as code
+changes. It uses `pull_request_target` so the workflow itself is trusted, checks
+out the PR's base commit, and fetches the head commit only as Git data. It runs
+the base validator in Python isolated mode with no dependency installation.
+The checkout retains read-only authentication for the fetch; PR code is never
+checked out or executed in this job. Do not add PR builds, tests, or dependency
+installation to it.
+
+The separate **Test migration tooling** job uses the ordinary `pull_request`
+workflow to exercise the proposed scripts and dependencies, without persisted
+checkout credentials. See
+[migration-note authoring](CONTRIBUTING.md#document-a-breaking-change) for the
+required format.
+
+Each topic follows the .NET-based format documented in CONTRIBUTING.md:
+previous behavior, new behavior, type of breaking change, reason for change,
+recommended action, and affected APIs. Review the compatibility classification,
+the affected overloads or settings, and the consumer's verification steps;
+section validation cannot establish technical accuracy.
+
+The Release Drafter workflow first runs a read-only preview containing
+`$PREVIOUS_TAG`. That is the same release boundary used for its changelog and
+version resolution. The helper
+selects fragments added since that tag, validates them, and renders them with
+Towncrier. For a first release, all committed fragments are included.
+
+The helper prepends Towncrier's literal Markdown to Release Drafter's rendered
+body, then creates or updates an unpublished draft through the GitHub API.
+Migration text is not processed as a Release Drafter template, so code examples
+containing variables such as `$OWNER` remain unchanged. Every run regenerates
+both the migration section and the normal categorized notes.
+
+The workflow snapshots release metadata before the preview and rechecks it
+immediately before writing. If a release is published or a draft changes during
+generation, it fails and must be rerun. Multiple stable drafts also fail instead
+of silently choosing one. A failed preview, missing history, invalid fragment,
+or failed render stops the workflow before it writes a draft. Runs are
+serialized and check out current `main` so queued runs do not render an older
+push. Avoid publishing or manually editing releases while drafting runs.
+
+This integration drafts stable, `v`-prefixed releases, as configured today.
+Prerelease drafts and drafts whose tags are not stable `vMAJOR.MINOR.PATCH`
+versions are left untouched, but block draft generation: the publishing
+workflow requires exactly one draft release. Resolve unrelated drafts before
+rerunning Release Drafter. Supporting a separate prerelease draft stream
+requires updating both draft selection and publishing alongside Release
+Drafter's configuration.
+
+After a release is published, fragments present at its tag are automatically
+excluded from the next draft. No fragment cleanup or manual reapplication of
+migration notes is needed. The fragments remain available in Git; published
+release notes remain the record for that version. Changes to old fragments do
+not update published releases automatically.
+
+Manual additions to the draft body are still overwritten. Make migration
+corrections in their source fragments and merge them into `main`. The merge
+triggers **Release Drafter**. Manual runs also read `main`, not an unmerged
+branch. Before tagging, confirm the final draft workflow completed successfully
+and contains the expected notes. This automation does not create tags, publish
+releases, or change MinVer's version calculation.
+
+### Archive guides by release version
+
+Authors maintain fragments in `.changes/`. Readers use
+[`docs/migrations/README.md`](docs/migrations/README.md), which links to version
+directories. Each directory contains a `README.md` topic index and one document
+per migration topic, such as
+`docs/migrations/3.0.0/credential-helper-errors.md`.
+Each generated topic also records **Version introduced**, derived from the
+published release tag. Authors do not choose a version directory or duplicate
+the version in their fragments.
+
+The **Migration guides** workflow reads the marked migration section from each
+published stable release, generates the topic files and indexes, and opens or
+updates one draft documentation PR on `automation/migration-guides`. Only
+`docs/migrations/` is committed. Versions without migration instructions are
+omitted, and previously archived version directories are retained. Within a
+regenerated version, topics removed from the published migration section are
+also removed from that directory. Repeated runs produce no
+changes unless published migration text or the set of releases changed.
+
+The workflow runs on publication, after the Release workflow completes, and
+through manual dispatch. The `workflow_run` trigger covers releases published
+using `GITHUB_TOKEN`, which do not trigger another `release` event workflow.
+It also checks after failed Release runs because publication may have succeeded
+before a later package-attachment step failed. It reads only published release
+metadata and checks out trusted `main`; it never executes the release tag or
+downloads triggering-run artifacts.
+
+PRs created or updated with `GITHUB_TOKEN` can start approval-required workflow
+runs for the `opened`, `synchronize`, and `reopened` events. A maintainer can select
+**Approve workflows to run** on the PR; see
+[GitHub's workflow-triggering rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+Generated PRs use `draft: always-true`. Marking a PR ready for review also
+triggers CI and migration validation through their `ready_for_review` event.
+An automated update returns it to draft for another review.
+Merge the PR after its checks pass. The workflow never commits directly to
+`main` or merges the PR.
+
+Published GitHub Releases remain the source of truth for archived guides.
+For corrections, edit that release's migration section while preserving its
+`<!-- migration-notes:start -->` and `<!-- migration-notes:end -->` markers,
+and the `<!-- migration-topic: fragment-slug -->` marker before each topic,
+then rerun Migration guides. Do not separately edit generated guides or the
+index. Releases predating this system without markers are left alone; malformed
+markers fail generation rather than producing incomplete topic documents.
+Topic filenames retain their fragment slugs even if a topic's title changes.
+Published topics must retain the same completed sections as authoring fragments.
+Generation validates all marked topics before writing guides; an invalid topic
+stops the run without partially updating the generated documents. Releases
+without migration markers remain outside this format check.
+
 ## Configure trusted publishing
 
 Complete this setup before pushing the first release tag:

@@ -1,0 +1,10 @@
+## Breaking changes and migration
+
+{% for section, categories in sections.items() %}
+{% for category, fragments in categories.items() %}
+{% for text, issues in fragments.items() %}
+{{ text }}
+
+{% endfor %}
+{% endfor %}
+{% endfor %}

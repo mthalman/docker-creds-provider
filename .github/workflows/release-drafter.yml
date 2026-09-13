@@ -3,6 +3,11 @@ name: Release Drafter
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: release-drafter
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -13,7 +18,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Update release draft
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Select draft commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install migration tooling
+        run: python -m pip install -r .github/scripts/requirements.txt
+
+      - name: Snapshot releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python .github/scripts/update_release_draft.py snapshot
+          --snapshot "$RUNNER_TEMP/releases.json"
+
+      - name: Preview release boundary
+        id: preview
         uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
+        with:
+          dry-run: true
+          publish: false
+          commitish: ${{ steps.commit.outputs.sha }}
+          header: |
+            <!-- migration-base: $PREVIOUS_TAG -->
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render migration notes and update draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PREVIEW: ${{ steps.preview.outputs.body }}
+          RELEASE_NAME: ${{ steps.preview.outputs.name }}
+          RELEASE_TAG: ${{ steps.preview.outputs.tag_name }}
+        run: >-
+          python .github/scripts/update_release_draft.py update
+          --snapshot "$RUNNER_TEMP/releases.json"
