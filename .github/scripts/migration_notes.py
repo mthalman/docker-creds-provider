@@ -56,8 +56,10 @@ def find_section(text: str, title: str) -> tuple[int, str]:
             if active:
                 content.append(raw_line)
             continue
-        heading = re.match(r" {0,3}(#{1,4})(?:[ \t]+(.*)|$)", line)
+        heading = re.match(r" {0,3}(#{1,6})(?:[ \t]+(.*)|$)", line)
         if heading:
+            if len(heading[1]) > 4:
+                continue
             if active:
                 break
             heading_title = re.sub(r"[ \t]+#+[ \t]*$", "", heading[2] or "").strip()

@@ -70,7 +70,12 @@ class MigrationFormatTests(unittest.TestCase):
         for heading in REQUIRED_HEADINGS:
             before, separator, after = NOTE.partition(f"#### {heading}\n")
             _, next_heading, remaining = after.partition("\n#### ")
-            for content in ("", "TODO", "TBD.", "N/A", "<!-- Fill this in. -->"):
+            for content in (
+                "", "TODO", "TBD.", "N/A", "<!-- Fill this in. -->",
+                "##### Before", "###### After", "##### Before\n\n###### After",
+                "   ##### Before ###", "#####\n\n######",
+                "##### Before\n\n<!-- Fill this in. -->", "###### After\n\nTODO",
+            ):
                 with self.subTest(heading=heading, content=content):
                     text = before + separator + f"\n{content}\n" + next_heading + remaining
                     with self.assertRaisesRegex(ValueError, heading):
@@ -118,6 +123,15 @@ class FragmentSectionTests(unittest.TestCase):
             "##### After\n\nCatch InvalidOperationException and inspect InnerException.",
         )
         self.validate(text)
+
+    def test_nested_fenced_examples_are_valid(self):
+        for fence in ("```", "~~~"):
+            with self.subTest(fence=fence):
+                text = NOTE.replace(
+                    "Catch the new exception type and inspect its inner exception.",
+                    f"##### Example\n\n{fence}markdown\n###### Heading inside example\n{fence}\n",
+                )
+                self.validate(text)
 
     def test_required_heading_inside_fence_does_not_satisfy_requirement(self):
         for fence in ("```", "~~~~"):
@@ -383,9 +397,14 @@ class MigrationNotesTests(unittest.TestCase):
 
     def test_render_rejects_invalid_note_before_drafting(self):
         self.configure_renderer()
-        self.note(text="TODO")
-        with self.assertRaisesRegex(ValueError, "migration fragment"):
-            render(self.repo, self.base, self.commit())
+        for text in (
+            "TODO",
+            NOTE.replace("Catch the new exception type and inspect its inner exception.", "##### Before"),
+        ):
+            with self.subTest(text=text):
+                self.note(text=text)
+                with self.assertRaisesRegex(ValueError, "migration fragment"):
+                    render(self.repo, self.base, self.commit())
 
     def test_reserved_migration_markers_are_rejected_in_fragments(self):
         for marker in (MIGRATION_START, TOPIC_MARKER_PREFIX):
@@ -550,13 +569,27 @@ class MigrationGuideTests(unittest.TestCase):
             guide_documents([release], "owner/repo")
 
     def test_invalid_published_topic_does_not_write_partial_guides(self):
-        invalid = self.release("v4.0.0")
-        invalid["body"] = invalid["body"].replace("#### Recommended action", "#### Details")
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            with self.assertRaisesRegex(ValueError, "Recommended action"):
-                write_guides(repo, [self.release(), invalid], "owner/repo")
-            self.assertFalse((repo / "docs").exists())
+        for original, replacement in (
+            ("#### Recommended action", "#### Details"),
+            ("Catch the new exception type and inspect its inner exception.", "##### Before"),
+        ):
+            with self.subTest(replacement=replacement):
+                invalid = self.release("v4.0.0")
+                invalid["body"] = invalid["body"].replace(original, replacement)
+                with tempfile.TemporaryDirectory() as directory:
+                    repo = Path(directory)
+                    with self.assertRaisesRegex(ValueError, "Recommended action"):
+                        write_guides(repo, [self.release(), invalid], "owner/repo")
+                    self.assertFalse((repo / "docs").exists())
+
+    def test_populated_nested_headings_are_preserved_in_guides(self):
+        section = "##### Before\n\nUse the old API.\n\n###### After\n\n```csharp\nNewApi();\n```"
+        release = self.release()
+        release["body"] = release["body"].replace(
+            "Catch the new exception type and inspect its inner exception.", section
+        )
+        topic = guide_documents([release], "owner/repo")["3.0.0"]["credential-helper-errors.md"]
+        self.assertIn(section, topic)
 
     def test_version_introduced_comes_from_each_release_tag(self):
         for tag in ("v3.0.0", "v10.2.1"):
