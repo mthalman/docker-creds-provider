@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 FRAGMENTS = ".changes"
+GUIDE_STATE = ".github/migration-guides.json"
 FILENAME = re.compile(r"\+[a-z0-9]+(?:-[a-z0-9]+)*\.breaking\.md")
 STABLE_TAG = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 MIGRATION_START = "<!-- migration-notes:start -->"
@@ -115,6 +116,18 @@ def validate_guide(name: str, text: str) -> None:
     validate_fragment(f"{FRAGMENTS}/+{path[2]}.breaking.md", topic)
 
 
+def pending_guide_versions(text: str | None) -> list[str]:
+    state = json.loads(text) if text is not None else {"pending_versions": []}
+    if not isinstance(state, dict) or set(state) != {"pending_versions"}:
+        raise ValueError("Invalid migration guide state.")
+    pending = state["pending_versions"]
+    if not isinstance(pending, list) or any(
+        not isinstance(version, str) or not STABLE_TAG.fullmatch(f"v{version}") for version in pending
+    ) or len(pending) != len(set(pending)):
+        raise ValueError("Invalid pending migration guide versions.")
+    return pending
+
+
 def check_pr(repo: Path, base: str, head: str, labels: list[str]) -> None:
     if "semver:major" in labels and "skip-changelog" in labels:
         raise ValueError("Breaking-change PRs must not use skip-changelog.")
@@ -129,8 +142,26 @@ def check_pr(repo: Path, base: str, head: str, labels: list[str]) -> None:
             f"semver:major PRs must add a new migration fragment in {FRAGMENTS}; "
             "editing an existing note does not document a new breaking change."
         )
-    for status, name in changed_files(repo, branch_base, head, "docs/migrations"):
-        if status != "D" and name.endswith(".md"):
+    guide_changes = changed_files(repo, branch_base, head, "docs/migrations")
+    pending = []
+    if any(status == "D" and name.endswith(".md") for status, name in guide_changes):
+        state_files = git(
+            repo, "ls-tree", "-rz", "--name-only", base, "--", GUIDE_STATE
+        ).split("\0")
+        pending = pending_guide_versions(
+            git(repo, "show", f"{base}:{GUIDE_STATE}") if GUIDE_STATE in state_files else None
+        )
+    for status, name in guide_changes:
+        if not name.endswith(".md"):
+            continue
+        if status == "D":
+            parts = name.split("/")
+            if len(parts) != 4 or parts[2] not in pending:
+                raise ValueError(
+                    f"Cannot delete or rename {name}: "
+                    "its version must be pending at the PR base."
+                )
+        else:
             validate_guide(name, git(repo, "show", f"{head}:{name}"))
 
 

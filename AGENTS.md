@@ -89,7 +89,10 @@ Once a tag is published, automation preserves that version's directory and
 removes it from `pending_versions`. Published guides are the authoritative
 migration details: correct them through reviewed documentation PRs, preserving
 paths and slugs. Update the version's topic index when changing a published
-topic title. Do not correct published releases or old fragments, and do not
+topic title. The PR policy permits guide deletions only beneath versions listed
+in `pending_versions` at the current PR base commit, not state added in the PR
+or an older merge base. Keep the root migration index.
+Do not correct published releases or old fragments, and do not
 reintroduce released fragments. The root index is generated and includes
 upcoming guides without implying publication. Releases without existing guides
 are not backfilled from release bodies. There is no post-publication archive

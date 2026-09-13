@@ -120,6 +120,10 @@ markers. The base-owned validator also checks the same required sections in
 added or edited versioned topics, including published corrections.
 Headings inside fenced examples do not count as document sections.
 Indexes are navigation pages, not migration topics, and do not use this format.
+Guide deletions, including version indexes, are allowed only beneath a version
+already listed in `.github/migration-guides.json` under `pending_versions` at the
+current PR base commit. Changing that state in the same PR cannot grant deletion
+permission. The root migration index cannot be deleted.
 Reviewers must still check technical accuracy, compatibility classification,
 affected-API coverage, and completeness; tooling does not infer
 instructions from code.

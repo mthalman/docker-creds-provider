@@ -237,6 +237,12 @@ whether a version is published, and never supply topic content. Older releases
 without guides are not backfilled. There is no separate post-publication
 Migration guides workflow.
 
+The PR policy also rejects guide deletions unless the version is listed in
+`pending_versions` at the current PR base commit. This includes version indexes;
+the root migration index cannot be deleted. Adding pending state in the cleanup
+PR or relying on an older merge base does not authorize deletion. Publication
+and live-link checks remain the generation workflow's responsibility.
+
 ### Correct migration guides
 
 For an unpublished change, correct its source fragment and merge the correction

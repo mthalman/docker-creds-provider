@@ -3,12 +3,12 @@ import re
 from pathlib import Path
 
 from migration_notes import (
-    FRAGMENTS, STABLE_TAG, TOPIC_MARKER_PREFIX, git, validate_fragment, validate_guide,
+    FRAGMENTS, GUIDE_STATE as STATE, STABLE_TAG, TOPIC_MARKER_PREFIX, git,
+    pending_guide_versions, validate_fragment, validate_guide,
 )
 
 
 GUIDES = "docs/migrations"
-STATE = ".github/migration-guides.json"
 
 
 def migration_topics(section: str) -> dict[str, tuple[str, str]]:
@@ -106,14 +106,7 @@ def plan_guides(repo: Path, commit: str, notes: str, tag: str, releases: list[di
     for name, text in documents.items():
         if name != STATE:
             validate_guide(name, text)
-    state = json.loads(documents[STATE]) if STATE in documents else {"pending_versions": []}
-    if not isinstance(state, dict) or set(state) != {"pending_versions"}:
-        raise ValueError("Invalid migration guide state.")
-    pending = state["pending_versions"]
-    if not isinstance(pending, list) or any(
-        not isinstance(version, str) or not STABLE_TAG.fullmatch(f"v{version}") for version in pending
-    ) or len(pending) != len(set(pending)):
-        raise ValueError("Invalid pending migration guide versions.")
+    pending = pending_guide_versions(documents.get(STATE))
     published = {
         release["tag_name"][1:] for release in releases
         if not release["draft"] and not release["prerelease"]

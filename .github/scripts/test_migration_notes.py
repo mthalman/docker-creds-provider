@@ -696,6 +696,7 @@ class MigrationNotesTests(unittest.TestCase):
         self.assertTrue((self.repo / "docs/migrations/4.0.0/helper.md").exists())
         self.assertEqual((self.repo / "docs/unrelated.md").read_text(), "Keep this document.\n")
         next_merged = self.commit()
+        check_pr(self.repo, merged, next_merged, ["semver:patch"])
         self.assertEqual(plan_guides(self.repo, next_merged, notes, "v4.0.0", []), next_plan)
 
     def test_no_topics_removes_only_superseded_pending_version(self):
@@ -743,6 +744,74 @@ class MigrationNotesTests(unittest.TestCase):
         ))
         with self.assertRaisesRegex(ValueError, "Recommended action"):
             check_pr(self.repo, base, self.commit(), ["semver:patch"])
+
+    def test_policy_rejects_deleting_retained_guides(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        for pending in (None, [], ["4.0.0"]):
+            for target in (
+                "docs/migrations/3.0.0/helper.md",
+                "docs/migrations/3.0.0/README.md",
+                "docs/migrations/3.0.0",
+            ):
+                with self.subTest(pending=pending, target=target):
+                    for name, text in guide_documents(notes, "v3.0.0").items():
+                        self.write(f"docs/migrations/3.0.0/{name}", text)
+                    if pending is None:
+                        (self.repo / ".github/migration-guides.json").unlink(missing_ok=True)
+                    else:
+                        self.write(".github/migration-guides.json", json.dumps({
+                            "pending_versions": pending,
+                        }))
+                    base = self.commit()
+                    self.git("rm", "-r", "--", target)
+                    with self.assertRaisesRegex(ValueError, "Cannot delete or rename"):
+                        check_pr(self.repo, base, self.commit(), ["semver:patch"])
+
+    def test_policy_rejects_deleting_root_index_even_with_pending_guides(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        write_guides(self.repo, self.base, plan_guides(self.repo, self.base, notes, "v3.0.0", []))
+        base = self.commit()
+        self.git("rm", "--", "docs/migrations/README.md")
+        with self.assertRaisesRegex(ValueError, "Cannot delete or rename"):
+            check_pr(self.repo, base, self.commit(), ["semver:patch"])
+
+    def test_policy_rejects_pending_authorization_added_only_in_pr(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        for name, text in guide_documents(notes, "v3.0.0").items():
+            self.write(f"docs/migrations/3.0.0/{name}", text)
+        base = self.commit()
+        self.write(".github/migration-guides.json", '{"pending_versions": ["3.0.0"]}\n')
+        self.git("rm", "-r", "--", "docs/migrations/3.0.0")
+        with self.assertRaisesRegex(ValueError, "Cannot delete or rename"):
+            check_pr(self.repo, base, self.commit(), ["semver:patch"])
+
+    def test_policy_uses_current_base_not_old_pending_state_at_merge_base(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        write_guides(self.repo, self.base, plan_guides(self.repo, self.base, notes, "v3.0.0", []))
+        old_base = self.commit()
+        write_guides(self.repo, old_base, plan_guides(self.repo, old_base, notes, "v4.0.0", []))
+        head = self.commit()
+        self.git("checkout", "-qb", "published-guides", old_base)
+        self.write(".github/migration-guides.json", '{"pending_versions": []}\n')
+        current_base = self.commit()
+        with self.assertRaisesRegex(ValueError, "Cannot delete or rename"):
+            check_pr(self.repo, current_base, head, ["semver:patch"])
+
+    def test_policy_rejects_malformed_base_state_before_allowing_deletion(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        for state, error in (
+            ('{"pending_versions": ["3.0.0", "../escape"]}', "migration guide"),
+            ("{not json", "Expecting property name"),
+        ):
+            with self.subTest(state=state):
+                for name, text in guide_documents(notes, "v3.0.0").items():
+                    self.write(f"docs/migrations/3.0.0/{name}", text)
+                self.write(".github/migration-guides.json", state)
+                base = self.commit()
+                self.write(".github/migration-guides.json", '{"pending_versions": ["3.0.0"]}\n')
+                self.git("rm", "--", "docs/migrations/3.0.0/helper.md")
+                with self.assertRaisesRegex(ValueError, error):
+                    check_pr(self.repo, base, self.commit(), ["semver:patch"])
 
     def test_main_verification_rejects_missing_or_different_remote_head(self):
         for output in ("", "other-sha\trefs/heads/main\n"):
