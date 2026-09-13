@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render, validate_fragment
-from migration_guides import guide_documents, index_document, migration_section, migration_topics, write_guides
-from update_release_draft import combine_notes, update_draft
+from migration_notes import MIGRATION_END, MIGRATION_START, TOPIC_MARKER_PREFIX, check_pr, main, previous_tag, render, validate_fragment, validate_guide
+from migration_guides import guide_documents, guides_ready, index_document, linked_notes, migration_topics, plan_guides, write_guides
+from update_release_draft import combine_notes, process_preview, restore_complete_history, update_draft, verify_main
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -175,7 +175,7 @@ class MigrationNotesTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
-        self.git("init", "-q")
+        self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Migration tests")
         self.git("config", "user.email", "migration-tests@example.invalid")
         self.git("config", "core.autocrlf", "false")
@@ -354,10 +354,10 @@ class MigrationNotesTests(unittest.TestCase):
         self.note(text=text)
         notes = render(self.repo, None, self.commit())
         preview = "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Existing PR\n"
-        combined = combine_notes(preview, notes)
-        self.assertIn(text.strip(), combined)
-        self.assertTrue(combined.endswith(f"```\n{MIGRATION_END}\n\n## What's Changed\n\n- Existing PR\n"))
-        self.assertIn(text.strip(), migration_section(combined))
+        combined = combine_notes(preview, linked_notes(notes, "v3.0.0", "owner/repo"))
+        self.assertNotIn(text.strip(), combined)
+        self.assertTrue(combined.endswith(f"{MIGRATION_END}\n\n## What's Changed\n\n- Existing PR\n"))
+        self.assertIn(text.strip(), guide_documents(notes, "v3.0.0")["helper.md"])
         self.assertNotIn("migration-base:", combined)
 
     def test_render_uses_committed_note_not_working_tree(self):
@@ -434,6 +434,321 @@ class MigrationNotesTests(unittest.TestCase):
         unrelated = self.commit()
         with self.assertRaisesRegex(ValueError, "ancestor"):
             render(self.repo, self.base, unrelated)
+
+    def test_release_links_wait_for_exact_merged_guides(self):
+        self.configure_renderer()
+        self.note("helper", NOTE + '\n```sh\necho "$OWNER"\n```\n')
+        head = self.commit()
+        notes = render(self.repo, self.base, head)
+        plan = plan_guides(self.repo, head, notes, "v3.0.0", [])
+        topic_path = "docs/migrations/3.0.0/helper.md"
+        self.assertIn(NOTE.strip(), plan[topic_path])
+        self.assertIn('echo "$OWNER"', plan[topic_path])
+        self.assertIn("**Version introduced:** 3.0.0", plan[topic_path])
+        self.assertNotIn("/releases/tag/", plan[topic_path])
+        self.assertFalse(guides_ready(self.repo, head, plan))
+        for path, text in plan.items():
+            self.write(path, text)
+        self.assertFalse(guides_ready(self.repo, head, plan), "Uncommitted guides cannot be linked")
+        merged = self.commit()
+        self.assertTrue(guides_ready(self.repo, merged, plan))
+        summary = linked_notes(notes, "v3.0.0", "owner/repo")
+        self.assertIn("[Credential helper errors](https://github.com/owner/repo/blob/main/docs/migrations/3.0.0/helper.md)", summary)
+        self.assertNotIn("#### Previous behavior", summary)
+        self.assertNotIn('echo "$OWNER"', summary)
+        self.assertEqual(plan, plan_guides(self.repo, merged, notes, "v3.0.0", []))
+        corrected = notes.replace("Malformed helper JSON now", "Invalid helper JSON now")
+        revised = plan_guides(self.repo, merged, corrected, "v3.0.0", [])
+        self.assertFalse(guides_ready(self.repo, merged, revised))
+
+    def test_version_change_replaces_only_unpublished_guides(self):
+        self.configure_renderer()
+        self.note()
+        head = self.commit()
+        notes = render(self.repo, self.base, head)
+        first = plan_guides(self.repo, head, notes, "v3.0.0", [])
+        for path, text in first.items():
+            self.write(path, text)
+        merged = self.commit()
+        next_plan = plan_guides(self.repo, merged, notes, "v4.0.0", [])
+        self.assertNotIn("docs/migrations/3.0.0/helper.md", next_plan)
+        self.assertIn("docs/migrations/4.0.0/helper.md", next_plan)
+        self.assertNotIn("3.0.0/README.md", next_plan["docs/migrations/README.md"])
+        published = [{"tag_name": "v3.0.0", "draft": False, "prerelease": False}]
+        retained = plan_guides(self.repo, merged, notes, "v4.0.0", published)
+        self.assertEqual(retained["docs/migrations/3.0.0/helper.md"], first["docs/migrations/3.0.0/helper.md"])
+        self.assertIn("3.0.0/README.md", retained["docs/migrations/README.md"])
+
+    def test_version_change_keeps_existing_draft_links_until_replaced(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        first = plan_guides(self.repo, self.base, notes, "v3.0.0", [])
+        write_guides(self.repo, self.base, first)
+        merged = self.commit()
+        draft = {
+            "tag_name": "v3.0.0", "draft": True, "prerelease": False,
+            "body": linked_notes(notes, "v3.0.0", "owner/repo"),
+        }
+        changed_version = plan_guides(self.repo, merged, notes, "v4.0.0", [draft])
+        self.assertIn("docs/migrations/3.0.0/helper.md", changed_version)
+        self.assertIn("docs/migrations/4.0.0/helper.md", changed_version)
+        write_guides(self.repo, merged, changed_version)
+        new_merged = self.commit()
+        self.assertEqual(
+            plan_guides(self.repo, new_merged, notes, "v4.0.0", [draft]), changed_version
+        )
+        draft["tag_name"] = "v4.0.0"
+        draft["body"] = linked_notes(notes, "v4.0.0", "owner/repo")
+        cleanup = plan_guides(self.repo, new_merged, notes, "v4.0.0", [draft])
+        self.assertNotIn("docs/migrations/3.0.0/helper.md", cleanup)
+        self.assertIn("docs/migrations/4.0.0/helper.md", cleanup)
+
+    def test_published_corrections_survive_subsequent_generation(self):
+        self.configure_renderer()
+        self.note()
+        head = self.commit()
+        notes = render(self.repo, self.base, head)
+        first = plan_guides(self.repo, head, notes, "v3.0.0", [])
+        for path, text in first.items():
+            self.write(path, text)
+        path = "docs/migrations/3.0.0/helper.md"
+        corrected = first[path].replace("new exception type", "documented exception type")
+        self.write(path, corrected)
+        merged = self.commit()
+        published = [{"tag_name": "v3.0.0", "draft": False, "prerelease": False}]
+        retained = plan_guides(self.repo, merged, "", "v3.0.1", published)
+        self.assertEqual(retained[path], corrected)
+        self.assertNotIn("docs/migrations/3.0.1/README.md", retained)
+        self.assertEqual(linked_notes("", "v3.0.1", "owner/repo"), "")
+        write_guides(self.repo, merged, retained)
+        next_merged = self.commit()
+        self.assertEqual(
+            plan_guides(self.repo, next_merged, "", "v4.0.0", [])[path], corrected,
+            "Previously published guides remain even if a release is no longer listed",
+        )
+
+    def test_preview_lifecycle_never_writes_draft_until_guides_merge(self):
+        self.configure_renderer()
+        self.git("remote", "add", "origin", str(self.repo))
+        self.git("tag", "v2.3.0", self.base)
+        self.note(text=NOTE.replace("Credential helper errors", "Credential $OWNER errors"))
+        head = self.commit()
+        preview = "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Product fix"
+        writes = []
+
+        def fake_api(endpoint, method="GET", payload=None):
+            if method == "GET":
+                return []
+            writes.append((endpoint, method, payload))
+            return {**payload, "id": 123, "published_at": None}
+
+        with patch("update_release_draft.api", side_effect=fake_api):
+            for _ in range(2):
+                self.assertFalse(process_preview(
+                    self.repo, head, preview, "Release 3.0.0", "v3.0.0",
+                    "owner/repo", [], prepare=True,
+                ))
+                with self.assertRaisesRegex(ValueError, "Waiting for migration guides"):
+                    process_preview(
+                        self.repo, head, preview, "Release 3.0.0", "v3.0.0",
+                        "owner/repo", [], prepare=False,
+                    )
+            self.assertEqual(writes, [])
+            merged = self.commit()
+            self.assertTrue(process_preview(
+                self.repo, merged, preview, "Release 3.0.0", "v3.0.0",
+                "owner/repo", [], prepare=True,
+            ))
+            self.assertTrue(process_preview(
+                self.repo, merged, preview, "Release 3.0.0", "v3.0.0",
+                "owner/repo", [], prepare=False,
+            ))
+        self.assertEqual(len(writes), 1)
+        endpoint, method, payload = writes[0]
+        self.assertEqual((endpoint, method), ("repos/owner/repo/releases", "POST"))
+        self.assertEqual(payload["target_commitish"], merged)
+        self.assertTrue(payload["draft"])
+        self.assertFalse(payload["prerelease"])
+        self.assertIn(
+            "[Credential $OWNER errors](https://github.com/owner/repo/blob/main/docs/migrations/3.0.0/helper.md)",
+            payload["body"],
+        )
+        self.assertNotIn("#### Previous behavior", payload["body"])
+        self.assertTrue(payload["body"].endswith("## What's Changed\n\n- Product fix"))
+        self.assertNotIn("migration-base:", payload["body"])
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        with patch("update_release_draft.api") as api:
+            with self.assertRaisesRegex(ValueError, "main changed"):
+                process_preview(
+                    self.repo, head, preview, "Release 3.0.0", "v3.0.0",
+                    "owner/repo", [], prepare=False,
+                )
+            api.assert_not_called()
+
+    def test_invalid_preview_does_not_write_partial_guides(self):
+        self.configure_renderer()
+        self.git("remote", "add", "origin", str(self.repo))
+        self.note()
+        head = self.commit()
+        with patch("update_release_draft.api", return_value=[]):
+            with self.assertRaisesRegex(ValueError, "no release notes"):
+                process_preview(
+                    self.repo, head, "<!-- migration-base:  -->", "Release 3.0.0",
+                    "v3.0.0", "owner/repo", [], prepare=True,
+                )
+        self.assertFalse((self.repo / "docs").exists())
+
+    def test_preview_rechecks_releases_and_main_after_guide_verification(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        self.configure_renderer()
+        self.note()
+        head = self.commit()
+        write_guides(self.repo, head, plan_guides(self.repo, head, notes, "v3.0.0", []))
+        merged = self.commit()
+        preview = "<!-- migration-base:  -->## What's Changed\n\n- Product fix"
+        new_draft = {
+            "id": 10, "tag_name": "v3.0.0", "name": "3.0.0", "draft": True,
+            "prerelease": False, "target_commitish": merged, "body": "Concurrent edit",
+            "updated_at": "2026-09-02", "published_at": None,
+        }
+        with patch("update_release_draft.verify_main"), \
+                patch("update_release_draft.api", side_effect=[[], [new_draft]]) as api:
+            with self.assertRaisesRegex(ValueError, "Releases changed"):
+                process_preview(
+                    self.repo, merged, preview, "3.0.0", "v3.0.0",
+                    "owner/repo", [], prepare=False,
+                )
+        self.assertEqual(len(api.call_args_list), 2)
+        self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
+        with patch("update_release_draft.verify_main", side_effect=[
+            None, ValueError("main changed during generation"),
+        ]), patch("update_release_draft.api", return_value=[]) as api:
+            with self.assertRaisesRegex(ValueError, "main changed"):
+                process_preview(
+                    self.repo, merged, preview, "3.0.0", "v3.0.0",
+                    "owner/repo", [], prepare=False,
+                )
+        api.assert_called_once()
+
+    def test_draft_update_restores_history_after_documentation_branch_fetch(self):
+        self.configure_renderer()
+        self.git("tag", "v2.3.0", self.base)
+        self.note()
+        self.commit()
+        for _ in range(12):
+            self.git("commit", "--allow-empty", "-qm", "Additional product change")
+        head = self.git("rev-parse", "HEAD")
+        notes = render(self.repo, "refs/tags/v2.3.0", head)
+        write_guides(self.repo, head, plan_guides(self.repo, head, notes, "v3.0.0", []))
+        merged = self.commit()
+        self.git("checkout", "-qb", "automation/migration-guides")
+        self.write(
+            "docs/migrations/3.0.0/helper.md",
+            guide_documents(notes, "v3.0.0")["helper.md"] + "\nStale proposed correction.\n",
+        )
+        self.commit()
+        self.git("checkout", "-q", "main")
+        with tempfile.TemporaryDirectory() as directory:
+            clone = Path(directory) / "checkout"
+            subprocess.run(
+                ["git", "clone", "--quiet", "--no-local", str(self.repo), str(clone)],
+                check=True,
+            )
+            preview = "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Product fix"
+            with patch("update_release_draft.api", return_value=[]):
+                self.assertTrue(process_preview(
+                    clone, merged, preview, "3.0.0", "v3.0.0", "owner/repo", [], prepare=True,
+                ))
+            subprocess.run(
+                ["git", "fetch", "--force", "--depth=10", "origin",
+                 "automation/migration-guides:refs/remotes/origin/automation/migration-guides"],
+                cwd=clone, check=True,
+            )
+            self.assertEqual(subprocess.check_output(
+                ["git", "rev-parse", "--is-shallow-repository"], cwd=clone, text=True
+            ).strip(), "true")
+            writes = []
+
+            def fake_api(endpoint, method="GET", payload=None):
+                if method == "GET":
+                    return []
+                writes.append(payload)
+                return {**payload, "id": 123, "published_at": None}
+
+            with patch("update_release_draft.api", side_effect=fake_api):
+                self.assertTrue(process_preview(
+                    clone, merged, preview, "3.0.0", "v3.0.0", "owner/repo", [], prepare=False,
+                ))
+            self.assertEqual(len(writes), 1)
+            self.assertEqual(writes[0]["target_commitish"], merged)
+            self.assertEqual(subprocess.check_output(
+                ["git", "rev-parse", "--is-shallow-repository"], cwd=clone, text=True
+            ).strip(), "false")
+
+    def test_version_cleanup_is_idempotent_and_preserves_other_files(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        first = plan_guides(self.repo, self.base, notes, "v3.0.0", [])
+        write_guides(self.repo, self.base, first)
+        self.write("docs/unrelated.md", "Keep this document.\n")
+        merged = self.commit()
+        next_plan = plan_guides(self.repo, merged, notes, "v4.0.0", [])
+        write_guides(self.repo, merged, next_plan)
+        self.assertFalse((self.repo / "docs/migrations/3.0.0/helper.md").exists())
+        self.assertTrue((self.repo / "docs/migrations/4.0.0/helper.md").exists())
+        self.assertEqual((self.repo / "docs/unrelated.md").read_text(), "Keep this document.\n")
+        next_merged = self.commit()
+        self.assertEqual(plan_guides(self.repo, next_merged, notes, "v4.0.0", []), next_plan)
+
+    def test_no_topics_removes_only_superseded_pending_version(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        write_guides(self.repo, self.base, plan_guides(self.repo, self.base, notes, "v3.0.0", []))
+        merged = self.commit()
+        plan = plan_guides(self.repo, merged, "", "v3.0.0", [])
+        self.assertNotIn("docs/migrations/3.0.0/helper.md", plan)
+        self.assertNotIn("3.0.0/README.md", plan["docs/migrations/README.md"])
+        self.assertEqual(json.loads(plan[".github/migration-guides.json"])["pending_versions"], [])
+
+    def test_invalid_state_or_published_version_stops_generation(self):
+        for state in (
+            [], {"pending_versions": ["../escape"]}, {"pending_versions": 3},
+            {"pending_versions": ["03.0.0"]}, {"unexpected": "3.0.0"},
+            {"pending_versions": ["3.0.0", "3.0.0"]}, {"pending_versions": [3]},
+        ):
+            with self.subTest(state=state):
+                self.write(".github/migration-guides.json", json.dumps(state))
+                with self.assertRaisesRegex(ValueError, "migration guide"):
+                    plan_guides(self.repo, self.commit(), "", "v3.0.0", [])
+        self.write(".github/migration-guides.json", '{"pending_versions": []}\n')
+        with self.assertRaisesRegex(ValueError, "already published"):
+            plan_guides(self.repo, self.commit(), "", "v3.0.0", [
+                {"tag_name": "v3.0.0", "draft": False, "prerelease": False},
+            ])
+
+    def test_unmanaged_version_is_not_silently_overwritten(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        for name, text in guide_documents(notes, "v3.0.0").items():
+            self.write(f"docs/migrations/3.0.0/{name}", text)
+        with self.assertRaisesRegex(ValueError, "Refusing to overwrite"):
+            plan_guides(self.repo, self.commit(), notes, "v3.0.0", [])
+
+    def test_policy_validates_published_corrections_and_exempts_indexes(self):
+        notes = "## Breaking changes and migration\n\n<!-- migration-topic: helper -->\n" + NOTE
+        for name, text in guide_documents(notes, "v3.0.0").items():
+            self.write(f"docs/migrations/3.0.0/{name}", text)
+        self.write("docs/migrations/README.md", "Version navigation\n")
+        base = self.commit()
+        check_pr(self.repo, self.base, base, ["semver:patch"])
+        text = (self.repo / "docs/migrations/3.0.0/helper.md").read_text()
+        self.write("docs/migrations/3.0.0/helper.md", text.replace(
+            "Catch the new exception type and inspect its inner exception.", "##### Before"
+        ))
+        with self.assertRaisesRegex(ValueError, "Recommended action"):
+            check_pr(self.repo, base, self.commit(), ["semver:patch"])
+
+    def test_main_verification_rejects_missing_or_different_remote_head(self):
+        for output in ("", "other-sha\trefs/heads/main\n"):
+            with self.subTest(output=output), patch("update_release_draft.git", return_value=output):
+                with self.assertRaisesRegex(ValueError, "main changed"):
+                    verify_main(self.repo, self.base)
 
 
 class DraftUpdateTests(unittest.TestCase):
@@ -519,92 +834,125 @@ class DraftUpdateTests(unittest.TestCase):
                 self.update(drafts)
         api.assert_called_once_with(self.endpoint)
 
+    def test_published_target_version_aborts_without_writing(self):
+        published = {**self.draft, "draft": False, "published_at": "2026-09-02"}
+        with patch("update_release_draft.api", return_value=[published]) as api:
+            with self.assertRaisesRegex(ValueError, "already published"):
+                self.update([published])
+        api.assert_called_once_with(self.endpoint)
+
     def test_empty_migration_output_does_not_add_section(self):
         self.assertEqual(
             combine_notes("<!-- migration-base: v2.3.0 -->## What's Changed", ""),
             "## What's Changed",
         )
 
+    def test_complete_history_does_not_fetch_again(self):
+        with patch("update_release_draft.git", return_value="false\n") as git:
+            restore_complete_history(ROOT)
+        git.assert_called_once_with(ROOT, "rev-parse", "--is-shallow-repository")
+
+    def test_failed_history_restore_prevents_draft_write(self):
+        failure = subprocess.CalledProcessError(1, ["git", "fetch", "--unshallow", "origin"])
+        with patch("update_release_draft.verify_main"), \
+                patch("update_release_draft.git", side_effect=["true\n", failure]), \
+                patch("update_release_draft.api", return_value=[]) as api:
+            with self.assertRaises(subprocess.CalledProcessError):
+                process_preview(
+                    ROOT, "commit", "<!-- migration-base: v2.3.0 -->## Changes",
+                    "3.0.0", "v3.0.0", "owner/repo", [], prepare=False,
+                )
+        api.assert_called_once_with(self.endpoint)
+
 
 class MigrationGuideTests(unittest.TestCase):
-    def release(self, tag="v3.0.0", **overrides):
-        return {
-            "tag_name": tag, "draft": False, "prerelease": False,
-            "body": combine_notes(
-                "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Product fix",
-                "## Breaking changes and migration\n\n"
-                "<!-- migration-topic: credential-helper-errors -->\n" + NOTE,
-            ),
-            **overrides,
-        }
+    def notes(self, text=NOTE):
+        return (
+            "## Breaking changes and migration\n\n"
+            "<!-- migration-topic: credential-helper-errors -->\n" + text
+        )
 
-    def test_guide_contains_only_published_migration_section(self):
-        guides = guide_documents([self.release()], "owner/repo")
-        self.assertEqual(set(guides), {"3.0.0"})
-        topic = guides["3.0.0"]["credential-helper-errors.md"]
-        self.assertEqual(set(guides["3.0.0"]), {"credential-helper-errors.md", "README.md"})
+    def test_guide_contains_full_topic_without_future_release_link(self):
+        guides = guide_documents(self.notes(), "v3.0.0")
+        topic = guides["credential-helper-errors.md"]
+        self.assertEqual(set(guides), {"credential-helper-errors.md", "README.md"})
         self.assertTrue(topic.startswith("# Upgrade to 3.0.0\n\n"))
         self.assertIn("**Version introduced:** 3.0.0\n", topic)
-        self.assertIn("https://github.com/owner/repo/releases/tag/v3.0.0", topic)
+        self.assertNotIn("/releases/tag/", topic)
         self.assertIn(NOTE.strip(), topic)
         self.assertNotIn("What's Changed", topic)
         self.assertNotIn("migration-notes:", topic)
         self.assertNotIn("migration-topic:", topic)
-        self.assertIn("[Credential helper errors](credential-helper-errors.md)", guides["3.0.0"]["README.md"])
+        self.assertIn("[Credential helper errors](credential-helper-errors.md)", guides["README.md"])
 
-    def test_published_topics_require_the_same_sections_as_fragments(self):
+    def test_versioned_topics_require_the_same_sections_as_fragments(self):
         for heading in REQUIRED_HEADINGS:
             with self.subTest(heading=heading):
-                release = self.release()
-                release["body"] = release["body"].replace(f"#### {heading}", f"#### Omitted {heading}")
+                topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+                topic = topic.replace(f"#### {heading}", f"#### Omitted {heading}")
                 with self.assertRaisesRegex(ValueError, heading):
-                    guide_documents([release], "owner/repo")
+                    validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
 
-    def test_published_topics_require_documented_section_order(self):
+    def test_versioned_topic_heading_must_be_outside_fences(self):
+        topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+        for fence in ("```", "~~~~", "   ```"):
+            with self.subTest(fence=fence):
+                with self.assertRaisesRegex(ValueError, "section heading"):
+                    validate_guide(
+                        "docs/migrations/3.0.0/credential-helper-errors.md",
+                        f"{fence}markdown\n{topic}{fence}\n",
+                    )
+
+    def test_versioned_topic_ignores_migration_heading_in_fenced_preamble(self):
+        topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+        preamble = "```markdown\n## Breaking changes and migration\n\n### Example only\n```\n\n"
+        validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", preamble + topic)
+
+    def test_fenced_preamble_cannot_supply_missing_topic_sections(self):
+        topic = guide_documents(self.notes(), "v3.0.0")["credential-helper-errors.md"]
+        invalid_topic = topic.replace("#### Recommended action", "#### Details")
+        with self.assertRaisesRegex(ValueError, "Recommended action"):
+            validate_guide(
+                "docs/migrations/3.0.0/credential-helper-errors.md",
+                f"```markdown\n{topic}```\n\n{invalid_topic}",
+            )
+
+    def test_topics_require_documented_section_order(self):
         title, *sections = NOTE.split("\n#### ")
         reordered = "\n#### ".join([title, sections[-1], *sections[:-1]])
-        release = self.release()
-        release["body"] = release["body"].replace(NOTE, reordered)
         with self.assertRaisesRegex(ValueError, "required sections must appear in this order"):
-            guide_documents([release], "owner/repo")
+            guide_documents(self.notes(reordered), "v3.0.0")
 
-    def test_invalid_published_topic_does_not_write_partial_guides(self):
+    def test_topics_reject_missing_or_heading_only_sections(self):
         for original, replacement in (
             ("#### Recommended action", "#### Details"),
             ("Catch the new exception type and inspect its inner exception.", "##### Before"),
         ):
             with self.subTest(replacement=replacement):
-                invalid = self.release("v4.0.0")
-                invalid["body"] = invalid["body"].replace(original, replacement)
-                with tempfile.TemporaryDirectory() as directory:
-                    repo = Path(directory)
-                    with self.assertRaisesRegex(ValueError, "Recommended action"):
-                        write_guides(repo, [self.release(), invalid], "owner/repo")
-                    self.assertFalse((repo / "docs").exists())
+                with self.assertRaisesRegex(ValueError, "Recommended action"):
+                    guide_documents(self.notes(NOTE.replace(original, replacement)), "v3.0.0")
 
     def test_populated_nested_headings_are_preserved_in_guides(self):
         section = "##### Before\n\nUse the old API.\n\n###### After\n\n```csharp\nNewApi();\n```"
-        release = self.release()
-        release["body"] = release["body"].replace(
+        notes = self.notes().replace(
             "Catch the new exception type and inspect its inner exception.", section
         )
-        topic = guide_documents([release], "owner/repo")["3.0.0"]["credential-helper-errors.md"]
+        topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
         self.assertIn(section, topic)
+        validate_guide("docs/migrations/3.0.0/credential-helper-errors.md", topic)
 
-    def test_version_introduced_comes_from_each_release_tag(self):
+    def test_version_introduced_comes_from_computed_tag(self):
         for tag in ("v3.0.0", "v10.2.1"):
             with self.subTest(tag=tag):
                 version = tag[1:]
-                topic = guide_documents([self.release(tag)], "owner/repo")[version]["credential-helper-errors.md"]
+                topic = guide_documents(self.notes(), tag)["credential-helper-errors.md"]
                 self.assertIn(f"**Version introduced:** {version}\n", topic)
 
     def test_multiple_topics_generate_individual_files_and_version_index(self):
-        release = self.release()
         second = "<!-- migration-topic: registry-matching -->\n" + NOTE.replace(
             "Credential helper errors", "Registry matching"
         ) + "\n```markdown\n### This heading is a code example, not another topic\n```\n"
-        release["body"] = release["body"].replace(MIGRATION_END, second + MIGRATION_END)
-        documents = guide_documents([release], "owner/repo")["3.0.0"]
+        documents = guide_documents(self.notes() + "\n" + second, "v3.0.0")
         self.assertEqual(set(documents), {"credential-helper-errors.md", "registry-matching.md", "README.md"})
         self.assertNotIn("Registry matching", documents["credential-helper-errors.md"])
         self.assertNotIn("Credential helper errors", documents["registry-matching.md"])
@@ -615,11 +963,11 @@ class MigrationGuideTests(unittest.TestCase):
         )
 
     def test_topic_title_edit_preserves_filename(self):
-        release = self.release()
-        release["body"] = release["body"].replace("Credential helper errors", "New [title]")
-        documents = guide_documents([release], "owner/repo")["3.0.0"]
+        notes = self.notes().replace("Credential helper errors", "New [title]")
+        documents = guide_documents(notes, "v3.0.0")
         self.assertIn("credential-helper-errors.md", documents)
         self.assertIn("[New \\[title\\]](credential-helper-errors.md)", documents["README.md"])
+        self.assertIn("[New \\[title\\]](", linked_notes(notes, "v3.0.0", "owner/repo"))
 
     def test_unsafe_reserved_duplicate_and_missing_topic_markers_fail(self):
         for section in (
@@ -631,35 +979,14 @@ class MigrationGuideTests(unittest.TestCase):
             with self.subTest(section=section), self.assertRaisesRegex(ValueError, "topic"):
                 migration_topics(section)
 
-    def test_skips_drafts_prereleases_and_releases_without_migration_notes(self):
-        releases = [
-            self.release(draft=True),
-            self.release("v3.0.0-preview.1", prerelease=True),
-            self.release(body="Legacy notes without migration markers"),
-            self.release(body=None),
-        ]
-        self.assertEqual(guide_documents(releases, "owner/repo"), {})
-
-    def test_malformed_markers_fail_instead_of_generating_partial_guide(self):
-        for body in (
-            MIGRATION_START, MIGRATION_END,
-            f"{MIGRATION_END}\n{MIGRATION_START}",
-            f"{MIGRATION_START}\n{MIGRATION_START}\n{MIGRATION_END}",
-            f"{MIGRATION_START}\n## Breaking changes and migration\n{MIGRATION_END}",
-        ):
-            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "migration notes"):
-                migration_section(body)
-
     def test_windows_line_endings_preserve_section_text(self):
-        release = self.release()
-        expected = migration_section(release["body"])
-        self.assertEqual(migration_section(release["body"].replace("\n", "\r\n")), expected)
+        expected = guide_documents(self.notes(), "v3.0.0")
+        self.assertEqual(guide_documents(self.notes().replace("\n", "\r\n"), "v3.0.0"), expected)
 
-    def test_unsafe_or_duplicate_version_fails(self):
-        with self.assertRaisesRegex(ValueError, "tag"):
-            guide_documents([self.release("v../escape")], "owner/repo")
-        with self.assertRaisesRegex(ValueError, "Multiple"):
-            guide_documents([self.release(), self.release()], "owner/repo")
+    def test_unsafe_or_prerelease_version_fails(self):
+        for tag in ("v../escape", "v3.0.0-preview.1", "v03.0.0"):
+            with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "tag"):
+                guide_documents(self.notes(), tag)
 
     def test_index_orders_versions_numerically_and_descending(self):
         index = index_document({"3.0.0", "10.0.0", "4.0.0"})
@@ -667,48 +994,27 @@ class MigrationGuideTests(unittest.TestCase):
         self.assertLess(index.index("4.0.0"), index.index("3.0.0"))
         self.assertIn("[Upgrade to 3.0.0](3.0.0/README.md)", index)
 
-    def test_generation_is_idempotent_and_retains_archived_guides(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            write_guides(repo, [self.release()], "owner/repo")
-            files = sorted((repo / "docs/migrations").rglob("*.md"))
-            before = {path.relative_to(repo): path.read_bytes() for path in files}
-            write_guides(repo, [self.release()], "owner/repo")
-            self.assertEqual(before, {path.relative_to(repo): path.read_bytes() for path in files})
-            write_guides(repo, [self.release("v4.0.0")], "owner/repo")
-            self.assertTrue((repo / "docs/migrations/3.0.0/credential-helper-errors.md").exists())
-            index = (repo / "docs/migrations/README.md").read_text(encoding="utf-8")
-            self.assertIn("3.0.0/README.md", index)
-            self.assertIn("4.0.0/README.md", index)
-
-    def test_corrected_release_updates_guide_without_duplicate_entries(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            write_guides(repo, [self.release()], "owner/repo")
-            corrected = self.release()
-            corrected["body"] = corrected["body"].replace("new exception type", "corrected exception type")
-            write_guides(repo, [corrected], "owner/repo")
-            guide = (repo / "docs/migrations/3.0.0/credential-helper-errors.md").read_text(encoding="utf-8")
-            self.assertIn("corrected exception type", guide)
-            self.assertEqual(guide.count("# Upgrade to 3.0.0"), 1)
-
-    def test_removed_published_topic_is_removed_only_from_its_version(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            release = self.release()
-            second = "<!-- migration-topic: removed-topic -->\n" + NOTE
-            release["body"] = release["body"].replace(MIGRATION_END, second + MIGRATION_END)
-            write_guides(repo, [release, self.release("v4.0.0")], "owner/repo")
-            write_guides(repo, [self.release()], "owner/repo")
-            self.assertFalse((repo / "docs/migrations/3.0.0/removed-topic.md").exists())
-            self.assertTrue((repo / "docs/migrations/4.0.0/credential-helper-errors.md").exists())
-
     def test_reader_index_matches_checked_in_versioned_guides(self):
         versions = {path.parent.name for path in (ROOT / "docs/migrations").glob("*/README.md")}
         self.assertEqual(
             index_document(versions),
             (ROOT / "docs/migrations/README.md").read_text(encoding="utf-8"),
         )
+
+    def test_repository_topics_follow_format(self):
+        for path in (ROOT / "docs/migrations").rglob("*.md"):
+            with self.subTest(path=path):
+                validate_guide(path.relative_to(ROOT).as_posix(), path.read_text(encoding="utf-8"))
+
+    def test_existing_helper_guidance_is_preserved_without_inline_details(self):
+        source = (ROOT / ".changes/+credential-helper-errors.breaking.md").read_text(encoding="utf-8")
+        notes = self.notes(source)
+        topic = guide_documents(notes, "v3.0.0")["credential-helper-errors.md"]
+        self.assertIn(source.strip(), topic)
+        summary = linked_notes(notes, "v3.0.0", "owner/repo")
+        self.assertIn("Credential-helper failures use sanitized exceptions", summary)
+        self.assertNotIn("InnerException", summary)
+        self.assertEqual(len(summary.strip().splitlines()), 3)
 
 
 if __name__ == "__main__":

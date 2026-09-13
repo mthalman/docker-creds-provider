@@ -11,7 +11,7 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   update_release_draft:
@@ -54,7 +54,84 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Render migration notes and update draft
+      - name: Prepare versioned migration guides
+        id: guides
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PREVIEW: ${{ steps.preview.outputs.body }}
+          RELEASE_NAME: ${{ steps.preview.outputs.name }}
+          RELEASE_TAG: ${{ steps.preview.outputs.tag_name }}
+        run: >-
+          python .github/scripts/update_release_draft.py prepare
+          --snapshot "$RUNNER_TEMP/releases.json"
+          --head "${{ steps.commit.outputs.sha }}"
+
+      - name: Open documentation pull request
+        id: docs-pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/migration-guides
+          base: main
+          delete-branch: true
+          draft: always-true
+          title: Prepare versioned migration guides
+          commit-message: Prepare versioned migration guides
+          add-paths: |
+            docs/migrations/
+            .github/migration-guides.json
+          labels: |
+            semver:patch
+            documentation
+          body: |
+            ## Summary
+
+            Prepare migration topics for Release Drafter's computed version and
+            update the reader indexes. Superseded unpublished guides are removed;
+            published guides and their reviewed corrections are retained.
+
+            Edit source fragments for unpublished corrections and rerun Release
+            Drafter. Do not edit this generated branch independently.
+
+            ## Review
+
+            Mark this pull request ready for review to start CI. Automated updates
+            return it to draft. Merge after checking the version and topic content.
+            The release draft remains unchanged until these exact guides are on
+            main. After merging, confirm Release Drafter succeeds (dispatch it
+            manually if the merge does not trigger a run).
+
+      - name: Verify documentation pull request
+        if: >-
+          steps.docs-pr.outputs.pull-request-operation == 'created' ||
+          steps.docs-pr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.docs-pr.outputs.pull-request-number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" |
+            jq -e '
+              .draft == true and
+              ([.labels[].name | select(startswith("semver:"))] == ["semver:patch"]) and
+              ([.labels[].name | select(. == "enhancement" or . == "bug" or
+                . == "documentation" or . == "dependencies")] == ["documentation"]) and
+              ([.labels[].name] | index("skip-changelog") == null)
+            '
+
+      - name: Wait for merged migration guides
+        if: steps.guides.outputs.guides-ready != 'true'
+        env:
+          DOCS_PR_URL: ${{ steps.docs-pr.outputs.pull-request-url }}
+        run: |
+          echo "::error::Waiting for migration guides. Merge the current documentation PR, then rerun Release Drafter. The existing release draft is unchanged."
+          {
+            echo "## Waiting for migration guides"
+            echo
+            echo "Review and merge ${DOCS_PR_URL}, then rerun Release Drafter."
+            echo "The existing release draft is unchanged and may contain an older version or inline guidance. Do not tag or publish based on that stale draft."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Update draft with links to merged guides
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PREVIEW: ${{ steps.preview.outputs.body }}
@@ -63,3 +140,4 @@ jobs:
         run: >-
           python .github/scripts/update_release_draft.py update
           --snapshot "$RUNNER_TEMP/releases.json"
+          --head "${{ steps.commit.outputs.sha }}"

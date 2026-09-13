@@ -57,9 +57,12 @@ These fragments are authoring inputs, not the reader-facing documentation.
 [Migration guides](docs/migrations/README.md) group individual topic documents
 inside version directories, such as
 `docs/migrations/3.0.0/credential-helper-errors.md`. Each version has a
-`README.md` topic index. Do not manually edit these generated files.
-Use absolute URLs in fragment links so they also work in release notes and
-versioned guides.
+`README.md` topic index. Release Drafter generates these guides before
+publication and waits for the exact files to merge on `main` before updating
+the release draft with linked topic titles. For unpublished changes, edit the
+fragment rather than the generated guides. After publication, correct the
+versioned topics directly through a reviewed documentation PR.
+Use absolute URLs in fragment links so they work in versioned guides.
 
 Start with this structure and replace the example text with specific guidance:
 
@@ -102,17 +105,20 @@ Use the six level-four sections above in that order. Within a section, use
 level-five or level-six headings for before-and-after examples and fenced code
 blocks with a language identifier. Add an optional `#### References` section
 with absolute links to the implementing PR, issue, or related documentation
-when available. Do not guess a PR number or release version: the release
-provides the version context, and generated topic documents include
-**Version introduced** from the published release tag.
+when available. Do not guess a PR number or release version: Release Drafter's
+dry-run preview supplies the version context, and generated topic documents
+include **Version introduced** from its computed tag. Guides do not link to a
+release that does not yet exist. The topic title becomes the concise linked
+summary in release notes, so make it meaningful without the topic body.
 
 The **Validate migration notes** check requires a new fragment for major PRs,
 rejects `skip-changelog` on those PRs, and validates the filename and required
 sections and their order in every added or edited fragment, including on
 non-major PRs. It rejects empty or heading-only sections, bare TODO/TBD/N/A
 placeholders, and reserved `migration-notes` start/end and `migration-topic`
-markers. The same section validation runs on published topics before generating
-versioned guides.
+markers. The base-owned validator also checks the same required sections in
+added or edited versioned topics, including published corrections.
+Headings inside fenced examples do not count as document sections.
 Indexes are navigation pages, not migration topics, and do not use this format.
 Reviewers must still check technical accuracy, compatibility classification,
 affected-API coverage, and completeness; tooling does not infer
@@ -128,14 +134,31 @@ Keep fragments in Git after publication. Do not delete, rename, or reuse them
 for a later breaking change. Corrections to existing fragments do not satisfy
 the new-fragment requirement for a major PR.
 
+### Correct migration guidance
+
+For an unpublished change, edit its source fragment and merge the correction
+into `main`. Rerun **Release Drafter** if it does not start automatically. Review
+and merge the updated generated documentation PR, then confirm that Release
+Drafter succeeds. The release draft stays unchanged while the required guides
+are missing or differ from the generated content.
+
+For a published change, edit its existing versioned topic in
+`docs/migrations/<version>/` through a reviewed documentation PR. Published
+guides are the authoritative migration details, and later automation preserves
+them. Retain each topic's path and fragment slug. If you change a topic title,
+also update that version's `README.md` topic index; the root version index is
+generated. Keep the required sections complete and verify the correction.
+Do not edit the published release or its old source fragment to correct a
+published guide. Existing release links to `main` pick up the merged correction.
+
 ### Format rationale
 
 This repository adapts the
 [.NET breaking-change template](https://github.com/dotnet/docs/blob/main/.github/ISSUE_TEMPLATE/02-breaking-change.yml)
 and [compatibility categories](https://learn.microsoft.com/en-us/dotnet/core/compatibility/categories).
 The template separates old and new behavior, the reason, consumer action, and
-affected APIs. We supply its version field from release metadata instead of
-asking fragment authors to predict it.
+affected APIs. We supply its version field from Release Drafter's preview
+instead of asking fragment authors to predict it.
 
 [Google AIP-180](https://google.aip.dev/180) reinforces that observable behavior,
 not just API signatures, is part of compatibility.
@@ -167,6 +190,21 @@ python .github/scripts/migration_notes.py render --base v2.3.0 --head HEAD
 
 The helper stages those fragments in a temporary directory and runs Towncrier
 in `--draft` mode. It does not delete fragments, create tags, or alter the
-working tree. After publication, automation opens a draft documentation PR
-containing individual topic files in the version's directory and updated
-indexes, copied from the migration section in the published release notes.
+working tree. In automation, Release Drafter uses the same selected fragments
+to generate versioned topics before publication. Towncrier's Markdown,
+including fenced and nested examples, is preserved rather than processed as
+a Release Drafter template.
+
+Release Drafter opens or updates a draft documentation PR containing the topic
+files, indexes, and `.github/migration-guides.json` state. Its `pending_versions`
+list tracks automation-owned unpublished guide directories. Release Drafter
+fails with **WAITING FOR MIGRATION GUIDES** until that exact proposal is merged
+on `main`, leaving the existing release draft unchanged. After the merge, a
+successful run updates the draft with concise linked topic titles, not the full
+topic bodies. During version changes, automation retains superseded guides while
+any release body links to their `main` URL prefix. Existing draft links stay
+usable until the new guides merge and the draft switches links. A later run,
+possibly dispatched manually, can propose cleanup through another documentation
+PR. Published guides are always retained. See the
+[maintainer procedure](MAINTAINERS.md#merge-migration-guides-before-updating-the-draft)
+for review, CI, and rerun instructions.

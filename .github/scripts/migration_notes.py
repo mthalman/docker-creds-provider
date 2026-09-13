@@ -30,14 +30,14 @@ def git(repo: Path, *args: str) -> str:
     )
 
 
-def changed_files(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
+def changed_files(repo: Path, base: str, head: str, directory: str = FRAGMENTS) -> list[tuple[str, str]]:
     entries = git(
-        repo, "diff", "--name-status", "--no-renames", "-z", base, head, "--", FRAGMENTS
+        repo, "diff", "--name-status", "--no-renames", "-z", base, head, "--", directory
     ).split("\0")
     return list(zip(entries[0:-1:2], entries[1:-1:2]))
 
 
-def find_section(text: str, title: str) -> tuple[int, str]:
+def find_section(text: str, title: str, level: int = 4) -> tuple[int, str]:
     content = []
     position = -1
     active = False
@@ -58,12 +58,12 @@ def find_section(text: str, title: str) -> tuple[int, str]:
             continue
         heading = re.match(r" {0,3}(#{1,6})(?:[ \t]+(.*)|$)", line)
         if heading:
-            if len(heading[1]) > 4:
+            if len(heading[1]) > level:
                 continue
             if active:
                 break
             heading_title = re.sub(r"[ \t]+#+[ \t]*$", "", heading[2] or "").strip()
-            if len(heading[1]) == 4 and heading_title == title:
+            if len(heading[1]) == level and heading_title == title:
                 position = line_number
                 active = True
                 continue
@@ -98,6 +98,23 @@ def validate_fragment(name: str, text: str) -> None:
         )
 
 
+def validate_guide(name: str, text: str) -> None:
+    if name == "docs/migrations/README.md":
+        return
+    path = re.fullmatch(r"docs/migrations/([^/]+)/([^/]+)\.md", name)
+    if not path or not STABLE_TAG.fullmatch(f"v{path[1]}"):
+        raise ValueError(f"Invalid migration guide path: {name}.")
+    if path[2] == "README":
+        return
+    if f"**Version introduced:** {path[1]}\n" not in text:
+        raise ValueError(f"{name}: Version introduced must match its version directory.")
+    position, _ = find_section(text, "Breaking changes and migration", level=2)
+    if position == -1:
+        raise ValueError(f"{name}: migration topic is missing its section heading.")
+    topic = "".join(text.splitlines(keepends=True)[position + 1:]).lstrip("\r\n")
+    validate_fragment(f"{FRAGMENTS}/+{path[2]}.breaking.md", topic)
+
+
 def check_pr(repo: Path, base: str, head: str, labels: list[str]) -> None:
     if "semver:major" in labels and "skip-changelog" in labels:
         raise ValueError("Breaking-change PRs must not use skip-changelog.")
@@ -112,6 +129,9 @@ def check_pr(repo: Path, base: str, head: str, labels: list[str]) -> None:
             f"semver:major PRs must add a new migration fragment in {FRAGMENTS}; "
             "editing an existing note does not document a new breaking change."
         )
+    for status, name in changed_files(repo, branch_base, head, "docs/migrations"):
+        if status != "D" and name.endswith(".md"):
+            validate_guide(name, git(repo, "show", f"{head}:{name}"))
 
 
 def render(repo: Path, base: str | None, head: str) -> str:
