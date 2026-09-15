@@ -373,7 +373,8 @@ class MigrationNotesTests(unittest.TestCase):
         preview = "<!-- migration-base: v2.3.0 -->## What's Changed\n\n- Existing PR\n"
         combined = combine_notes(preview, linked_notes(notes, "v3.0.0", "owner/repo"))
         self.assertNotIn(text.strip(), combined)
-        self.assertTrue(combined.endswith(f"{MIGRATION_END}\n\n## What's Changed\n\n- Existing PR\n"))
+        self.assertTrue(combined.startswith("## What's Changed\n\n### Breaking Changes\n"))
+        self.assertTrue(combined.endswith(f"{MIGRATION_END}\n\n- Existing PR\n"))
         self.assertIn(
             text.split("\n", 1)[1].strip().replace("#### ", "## "),
             guide_documents(notes, "v3.0.0")["helper.md"],
@@ -593,7 +594,8 @@ class MigrationNotesTests(unittest.TestCase):
             payload["body"],
         )
         self.assertNotIn("#### Previous behavior", payload["body"])
-        self.assertTrue(payload["body"].endswith("## What's Changed\n\n- Product fix"))
+        self.assertTrue(payload["body"].startswith("## What's Changed\n\n### Breaking Changes\n"))
+        self.assertTrue(payload["body"].endswith("- Product fix"))
         self.assertNotIn("migration-base:", payload["body"])
         self.assertEqual(self.git("status", "--porcelain"), "")
         with patch("update_release_draft.api") as api:
@@ -840,6 +842,81 @@ class MigrationNotesTests(unittest.TestCase):
                     verify_main(self.repo, self.base)
 
 
+class DraftCompositionTests(unittest.TestCase):
+    def test_release_drafter_categories_are_children_of_whats_changed(self):
+        config = (ROOT / ".github/release-drafter.yml").read_text(encoding="utf-8")
+        self.assertIn('category-template: "### $TITLE"\n', config)
+        self.assertIn("template: |\n  ## What's Changed\n\n  $CHANGES\n", config)
+
+    def test_migration_links_join_existing_breaking_category(self):
+        changes = (
+            "## What's Changed\n\n### Breaking Changes\n\n"
+            "- Breaking PR (#95)\n\n### Features\n\n- Feature PR (#96)\n"
+        )
+        links = "- [Registry matching](https://example.com/registry.md)\n"
+        expected = (
+            "## What's Changed\n\n### Breaking Changes\n\n"
+            "- Breaking PR (#95)\n\n"
+            f"{MIGRATION_START}\n**Migration guides**\n\n{links}{MIGRATION_END}\n\n"
+            "### Features\n\n- Feature PR (#96)\n"
+        )
+        self.assertEqual(
+            combine_notes("<!-- migration-base: v2.3.0 -->" + changes, links),
+            expected,
+        )
+
+    def test_migration_links_create_missing_breaking_category(self):
+        changes = "## What's Changed\n\n### Bug Fixes\n\n- Fix PR\n"
+        links = "- [Earlier breaking change](https://example.com/earlier.md)\n"
+        expected = (
+            "## What's Changed\n\n### Breaking Changes\n\n"
+            f"{MIGRATION_START}\n**Migration guides**\n\n{links}{MIGRATION_END}\n\n"
+            "### Bug Fixes\n\n- Fix PR\n"
+        )
+        self.assertEqual(combine_notes("<!-- migration-base:  -->" + changes, links), expected)
+
+    def test_migration_links_work_when_breaking_category_is_last(self):
+        changes = "## What's Changed\n\n### Breaking Changes\n\n- Breaking PR"
+        links = "- [Migration](https://example.com/migration.md)\n"
+        combined = combine_notes("<!-- migration-base:  -->" + changes, links)
+        self.assertEqual(
+            combined,
+            changes + f"\n\n{MIGRATION_START}\n**Migration guides**\n\n{links}{MIGRATION_END}\n",
+        )
+        self.assertEqual(combined.count("### Breaking Changes"), 1)
+
+    def test_fenced_headings_do_not_end_breaking_category(self):
+        changes = (
+            "## What's Changed\n\n### Breaking Changes\n\n- Breaking PR\n\n"
+            "```markdown\n### Features\n```\n\n"
+            "#### Details\n\nKeep details.\n\n### Maintenance\n\n- Maintenance PR\n"
+        )
+        combined = combine_notes("<!-- migration-base:  -->" + changes, "- Guide\n")
+        self.assertIn("```markdown\n### Features\n```\n\n#### Details\n\nKeep details.", combined)
+        self.assertLess(combined.index("Keep details."), combined.index(MIGRATION_START))
+        self.assertLess(combined.index(MIGRATION_END), combined.index("### Maintenance"))
+
+    def test_empty_migrations_preserve_categories_without_adding_markers(self):
+        changes = "## What's Changed\n\n### Breaking Changes\n\n- PR without a fragment\n"
+        self.assertEqual(combine_notes("<!-- migration-base:  -->" + changes, ""), changes)
+
+    def test_unexpected_category_layout_is_rejected(self):
+        for changes in (
+            "## Breaking Changes\n\n- Breaking PR",
+            "## What's Changed\n\n## Breaking Changes\n\n- Breaking PR",
+            "## What's Changed\n\n### Breaking Changes\n\n### Breaking Changes\n",
+        ):
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(ValueError, "category layout"):
+                    combine_notes("<!-- migration-base:  -->" + changes, "- Guide\n")
+
+    def test_reserved_markers_in_migration_links_are_rejected(self):
+        for marker in (MIGRATION_START, MIGRATION_END):
+            with self.subTest(marker=marker):
+                with self.assertRaisesRegex(ValueError, "reserved release-note marker"):
+                    combine_notes("<!-- migration-base:  -->## What's Changed", marker)
+
+
 class DraftUpdateTests(unittest.TestCase):
     def setUp(self):
         self.endpoint = "repos/owner/repo/releases"
@@ -849,7 +926,7 @@ class DraftUpdateTests(unittest.TestCase):
             "updated_at": "2026-09-01", "published_at": None,
             "body": "Existing notes",
         }
-        self.body = "## Breaking changes\n\n## What's Changed\n"
+        self.body = "## What's Changed\n\n### Breaking Changes\n"
 
     def result(self):
         return {**self.draft, "body": self.body, "target_commitish": "commit"}
@@ -1209,7 +1286,7 @@ class MigrationGuideTests(unittest.TestCase):
         summary = linked_notes(notes, "v3.0.0", "owner/repo")
         self.assertIn("Credential-helper failures use sanitized exceptions", summary)
         self.assertNotIn("InnerException", summary)
-        self.assertEqual(len(summary.strip().splitlines()), 3)
+        self.assertEqual(len(summary.strip().splitlines()), 1)
 
 
 if __name__ == "__main__":

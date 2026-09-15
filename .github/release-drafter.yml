@@ -53,6 +53,7 @@ categories:
   - type: version-resolver
     semver-increment: patch
 
+category-template: "### $TITLE"
 change-template: "- $TITLE (#$NUMBER) by $AUTHORS"
 change-title-escapes: '\<*_&'
 template: |
