@@ -72,9 +72,11 @@ existing release draft unchanged. The PR uses `draft: always-true`,
 ready for review, run the required checks, and merge it. Confirm the next
 Release Drafter run succeeds; dispatch it manually if the merge does not
 trigger a run. Automation never writes directly to `main` or merges PRs.
-Successful drafts prepend concise linked topic titles pointing to committed
-guides on `main`, not future tags or unmerged files. Never tag a release based
-on a waiting or stale draft; the publishing workflow does not enforce this gate.
+Successful drafts place concise linked topic titles inside the `Breaking Changes`
+category under `What's Changed`. All categories are child headings of
+`What's Changed`. Links point to committed guides on `main`, not future tags or
+unmerged files. Never tag a release based on a waiting or stale draft; the
+publishing workflow does not enforce this gate.
 
 For unpublished corrections, edit the source fragment and rerun Release
 Drafter. Do not edit unpublished generated guides independently. The metadata

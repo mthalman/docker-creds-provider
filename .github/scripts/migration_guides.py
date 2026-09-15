@@ -74,7 +74,7 @@ def linked_notes(notes: str, tag: str, repository: str) -> str:
         f"(https://github.com/{repository}/blob/main/{GUIDES}/{tag[1:]}/{slug}.md)"
         for slug, (title, _) in migration_topics(notes).items()
     ]
-    return "## Breaking changes and migration\n\n" + "\n".join(links) + "\n"
+    return "\n".join(links) + "\n"
 
 
 def index_document(versions: set[str]) -> str:

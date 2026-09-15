@@ -117,8 +117,8 @@ Towncrier's literal Markdown becomes versioned topic documents, not inline
 release prose. Migration text is not processed as a Release Drafter template:
 fenced and nested examples, including variables such as `$OWNER`, remain
 unchanged. Once the exact generated files and state are committed on `main`,
-the helper prepends concise bullet links to Release Drafter's categorized body.
-Each topic title serves as its summary. Links use
+the helper links to the migration guides in the release draft. Each topic title
+serves as its summary. Links use
 `https://github.com/<repo>/blob/main/docs/migrations/<computed-version>/<slug>.md`,
 never a future tag or an unmerged file. The helper then creates or updates an
 unpublished draft through the GitHub API.

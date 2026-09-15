@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from migration_notes import MIGRATION_END, MIGRATION_START, STABLE_TAG, git, previous_tag, render
+from migration_notes import MIGRATION_END, MIGRATION_START, STABLE_TAG, git, markdown_lines, previous_tag, render
 from migration_guides import guides_ready, linked_notes, plan_guides, write_guides
 
 
@@ -35,10 +35,35 @@ def combine_notes(preview: str, migrations: str) -> str:
         raise ValueError("Release Drafter preview has no release notes.")
     if MIGRATION_START in migrations or MIGRATION_END in migrations:
         raise ValueError("Migration notes contain a reserved release-note marker.")
-    return (
-        f"{MIGRATION_START}\n{migrations.rstrip()}\n{MIGRATION_END}\n\n"
-        if migrations else ""
-    ) + changes
+    if not migrations:
+        return changes
+
+    lines = changes.splitlines(keepends=True)
+    headings = [
+        (index, len(heading[1]), (heading[2] or "").strip())
+        for index, (_, heading) in enumerate(markdown_lines(changes)) if heading
+    ]
+    breaking = [index for index, level, title in headings
+                if level == 3 and title == "Breaking Changes"]
+    if (headings[:1] != [(0, 2, "What's Changed")] or
+            any(level <= 2 for _, level, _ in headings[1:]) or len(breaking) > 1):
+        raise ValueError(
+            "Unexpected Release Drafter category layout: expected categories beneath "
+            "'## What's Changed' and at most one '### Breaking Changes' section."
+        )
+
+    block = f"{MIGRATION_START}\n**Migration guides**\n\n{migrations.rstrip()}\n{MIGRATION_END}"
+    if breaking:
+        insertion = next(
+            (index for index, level, _ in headings if index > breaking[0] and level <= 3),
+            len(lines),
+        )
+    else:
+        insertion = 1
+        block = "### Breaking Changes\n\n" + block
+    before = "".join(lines[:insertion]).rstrip()
+    after = "".join(lines[insertion:]).lstrip("\r\n")
+    return f"{before}\n\n{block}" + (f"\n\n{after}" if after else "\n")
 
 
 def check_releases(endpoint: str, snapshot: list[dict], name: str, tag: str) -> list[dict]:
