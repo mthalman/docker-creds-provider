@@ -195,8 +195,8 @@ Containers auth files in the normal search locations still take priority.
 
 ##### Conflicting inline credentials or invalid inputs
 
-Remove duplicate or equivalent `auths` entries with different credentials;
-reordering them no longer controls which credentials are selected. Keep the
+Remove duplicate or equivalent `auths` entries with different credentials. Exact
+duplicate keys use the last JSON definition, so do not rely on their order. Keep the
 intended registry-level credential, plus any deliberate containers namespace
 overrides.
 
