@@ -45,6 +45,8 @@ passwords or identity tokens.
 ## Contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the local build and test workflow.
+Maintainers publish prepared stable releases using the
+[release procedure](MAINTAINERS.md#publish-a-release).
 
 ## License
 

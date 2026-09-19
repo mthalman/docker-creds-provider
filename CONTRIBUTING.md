@@ -98,9 +98,6 @@ Reviewers must check technical accuracy, compatibility classification,
 affected-API coverage, and completeness; tooling does not infer
 instructions from code.
 
-When changing migration tooling, merge validator support for a new generated
-topic format into `main` before regenerating the documentation PR in that format.
-
 ### Correct migration guidance
 
 For an unpublished change, edit its source fragment and merge the correction
@@ -132,21 +129,26 @@ standard. GitHub Releases remain this repository's changelog.
 
 ### Preview migration notes
 
-[Towncrier](https://towncrier.readthedocs.io/) is release tooling only; it does
-not change .NET package versions or publish anything. Install Python 3.13.
+[Towncrier](https://towncrier.readthedocs.io/) rendering runs in the shared
+toolkit, not this repository. Use a separate trusted toolkit checkout at
+`90551757fe8b061d4dff1a4cab12f10e58f07201` and follow its
+[local preview instructions](https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/local-development.md).
+Those instructions install the pinned rendering dependencies with Python 3.13.
+Pass this repository as `--repo`, `main` as `--default-branch`, and the previous
+published stable release tag as `--base`. Commit fragments before previewing:
+the toolkit reads committed Git objects, not uncommitted files.
 
-Replace `v2.3.0` with the previous published release tag. Commit your fragment
-before previewing: the helper reads fragments, Towncrier configuration, and the
-template from the selected commit, not uncommitted files.
-
-From the repository root, install the pinned dependency, run the checks, and
-render the preview:
+To check changes to this repository's workflow integration, run from its root:
 
 ```console
 python -m pip install -r .github/scripts/requirements.txt
-python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
-python .github/scripts/migration_notes.py render --base v2.3.0 --head HEAD
+python -B -m unittest discover -s .github/scripts -p test_release_automation.py
 ```
+
+These tests require Python and Bash (Git for Windows provides Bash). They check
+the consumer workflow contract and execute the package-version validation
+script. Toolkit unit tests remain upstream; the trusted PR policy never runs
+these proposed tests.
 
 See the
 [maintainer procedure](MAINTAINERS.md#merge-migration-guides-before-updating-the-draft)

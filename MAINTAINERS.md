@@ -18,261 +18,165 @@ Apply at most one release-note category:
 - `dependencies` for dependency updates
 - No category for maintenance, refactoring, tests, or infrastructure
 
-For mixed pull requests, classify by the highest-impact public change. For
-example, a test-heavy pull request that fixes a product bug is a `bug`. A
-dependency pull request that updates production and tooling dependencies remains
-a `dependencies` change.
+For mixed pull requests, classify by the highest-impact public change. A
+test-heavy product bug fix is `bug`; a dependency update spanning production
+and tooling dependencies is `dependencies`.
 
 Apply `skip-changelog` to internal-only test dependency updates, CI action
 updates, build or tooling changes, and repository administration that package
-users do not need to know about. Do not apply `skip-changelog` to production
-dependency updates, user-facing fixes, features, documentation, or significant
-release behavior.
+users do not need to know about. Do not apply it to production dependency
+updates, user-facing fixes, features, documentation, significant release
+behavior, or a breaking-change PR.
 
 ## Versioning and releases
 
-Package and assembly versions are derived from Git tags by
-[MinVer](https://github.com/adamralph/minver). The release workflow starts when
-you push a tag:
-
-- Stable release: `v1.2.3`
-- Prerelease: `v1.2.3-preview.1`
-
-The `v` prefix is omitted from the resulting package version. For example,
+[MinVer](https://github.com/adamralph/minver) derives package and assembly
+versions from Git tags. The release workflow supports **stable releases only**:
 `v1.2.3` produces `Valleysoft.DockerCredsProvider.1.2.3.nupkg`.
+Prerelease tags such as `v1.2.3-preview.1` are rejected before building or
+publishing. Untagged builds still use MinVer's deterministic development
+versions; this restriction does not change the library or local packing.
 
-Untagged commits use MinVer's deterministic development version. After a stable
-release, MinVer increments the patch version and adds an `alpha.0` prerelease
-identifier and the Git commit height, so an untagged build cannot be mistaken
-for a stable release.
+Use the exact stable tag and commit prepared by Release Drafter. Tagging an
+arbitrary commit or reusing an unprepared legacy draft no longer publishes a
+release. See [Publish a release](#publish-a-release).
 
 ## Manage release notes
 
-[Release Drafter](https://github.com/release-drafter/release-drafter) collects
-pull requests merged to `main` in an unpublished GitHub Release and uses their
-labels to organize the release notes and select the next version.
+The repository uses `mthalman/release-automation` **v1.0.1**, pinned to
+`90551757fe8b061d4dff1a4cab12f10e58f07201`, with its default paths, labels, and
+category titles. No consumer configuration file is needed. The toolkit owns
+Release Drafter configuration, Towncrier assets, and Python implementation;
+do not restore local copies.
 
-If no semantic-version label is present, Release Drafter proposes a patch
-release. If more than one is present, the highest version change wins. Pull
-requests without a category appear under Maintenance.
+The integration consists of:
 
-Published GitHub Releases are the release-note system of record; this repository
-does not maintain a `CHANGELOG.md`.
+| File | Responsibility |
+| --- | --- |
+| `.github/workflows/migration-note-policy.yml` | Call trusted migration policy on PR events |
+| `.github/workflows/release-drafter.yml` | Call guide generation and draft preparation on `main` or manual dispatch |
+| `.github/workflows/release.yml` | Validate a pushed tag, build/test/pack, publish to NuGet, upload assets, and finalize the GitHub Release |
+
+Published GitHub Releases are the changelog. Versioned topics in
+`docs/migrations/` are the authoritative migration details. The toolkit's
+[maintainer guide][toolkit-maintainers] describes draft selection, release
+boundaries, history retention, and corrections.
 
 ### Enable migration automation
 
-Complete this setup to enforce migration notes and generate documentation PRs:
+Complete rollout through the repository's normal review process:
 
-1. Merge the migration workflows into `main`. The policy workflow uses
-   `pull_request_target`, so it cannot run from an unmerged setup PR.
-2. Enable **Allow GitHub Actions to create and approve pull requests** in the
-   repository's Actions settings. No additional token is needed.
-3. Trigger a PR event, such as a label change or code update, and confirm that
-   **Validate migration notes** runs. Existing PRs need a new event after the
-   policy workflow is available on `main`.
-4. Require the **Validate migration notes** status check in the `main` branch
-   ruleset so a `semver:major` PR cannot merge without its migration fragment.
-5. Run **Release Drafter**, review and merge its generated documentation PR,
-   and rerun Release Drafter until it successfully writes the linked draft.
-   Complete this rollout before creating a release tag.
+1. Allow the pinned reusable workflows and Actions in repository/organization
+   Actions policy. Enable **Allow GitHub Actions to create and approve pull
+   requests**. The default labels listed above must exist.
+2. Remove the obsolete **Test migration tooling** requirement from the `main`
+   ruleset before merging the workflow removal; otherwise the missing check
+   blocks merging. Keep the .NET checks.
+3. Merge the callers into `main`. `pull_request_target` uses the base workflow;
+   an unmerged onboarding PR cannot demonstrate the new policy.
+4. Trigger a PR event and inspect the actual nested check name for the shared
+   **Validate migration notes** job. In the `main` ruleset, replace the old
+   standalone **Validate migration notes** requirement with that observed
+   name. Do not guess the nested name or remove the policy requirement without
+   adding its replacement.
+5. Verify that `semver:major` without a new valid fragment fails and that
+   combining `semver:major` with `skip-changelog` fails.
+6. Run **Release Drafter** and complete the documentation review cycle below.
+   A successful run must refresh the draft's preparation metadata before the
+   first tag is pushed, including when adopting an existing draft.
+7. Verify publication separately in a test repository using the toolkit's
+   [installation checks][toolkit-publishing]. Exercise rejected tags, failed
+   consumer steps, already-published reruns, and the shared concurrency queue.
 
-At rollout, the existing v3 draft contains migration guidance for #93 only;
-#95 and #97 do not have migration topics. This workflow change does not supply
-those missing topics or establish complete migration coverage. Review coverage
-separately before releasing; do not treat an unchanged legacy draft as a
-successful rollout.
+Workflow files and local tests do not prove live activation. Confirm repository
+permissions, nested required checks, environment approvals, the generated PR's
+CI path, and a successful post-merge drafting run.
 
 ### Automate breaking-change migration notes
 
-The **Migration note policy** workflow reruns on label changes as well as code
-changes. It uses `pull_request_target` so the workflow itself is trusted, checks
-out the PR's base commit, and fetches the head commit only as Git data. It runs
-the base validator in Python isolated mode with no dependency installation.
-The checkout retains read-only authentication for the fetch; PR code is never
-checked out or executed in this job. Do not add PR builds, tests, or dependency
-installation to it.
+The **Migration note policy** caller uses `pull_request_target`. Its callee
+executes a pinned toolkit validator with configuration and deletion-authorizing
+state from the PR base. The PR head is fetched as Git data; PR code and
+dependencies are never executed or installed in this job.
 
-The separate **Test migration tooling** job uses the ordinary `pull_request`
-workflow to exercise the proposed scripts and dependencies, without persisted
-checkout credentials. See
-[migration-note authoring](CONTRIBUTING.md#document-a-breaking-change) for the
-required format.
+Toolkit behavior is tested upstream; there is no separate migration-tooling
+test workflow in this repository. Local consumer integration tests remain
+available. See [CONTRIBUTING.md](CONTRIBUTING.md#document-a-breaking-change)
+for the six-section fragment format, local tests, and preview instructions.
 
-Each topic follows the .NET-based format documented in CONTRIBUTING.md:
-previous behavior, new behavior, type of breaking change, reason for change,
-recommended action, and affected APIs. Review the compatibility classification,
-the affected overloads or settings, and the consumer's verification steps;
-section validation cannot establish technical accuracy.
-The same base-owned validator checks added or edited versioned topics;
-navigation indexes are exempt.
-
-Release Drafter is the single owner of guide generation and release drafting.
-The workflow runs one read-only preview to obtain both the computed tag and
-`$PREVIOUS_TAG`. This uses the same release boundary for the changelog, version
-resolution, and fragment selection. The helper selects fragments added since
-that tag at the selected `main` commit, validates them, and renders them with
-Towncrier. For a first release, all committed fragments are included.
-
-Towncrier's literal Markdown becomes versioned topic documents, not inline
-release prose. Migration text is not processed as a Release Drafter template:
-fenced and nested examples, including variables such as `$OWNER`, remain
-unchanged. Once the exact generated files and state are committed on `main`,
-the helper links to the migration guides in the release draft. Each topic title
-serves as its summary. Links use
-`https://github.com/<repo>/blob/main/docs/migrations/<computed-version>/<slug>.md`,
-never a future tag or an unmerged file. The helper then creates or updates an
-unpublished draft through the GitHub API.
-
-The workflow snapshots release metadata before the preview and rechecks both
-the release snapshot and remote `main` before preparing working files and again
-before writing the draft. If a release is published, a draft changes, or remote
-`main` advances during generation, it fails and must be rerun. Multiple stable
-drafts also fail instead of silently choosing one. A failed preview, missing
-history, invalid fragment, or failed render stops the workflow before it writes
-a draft. Before writing,
-the helper rereads the selected `main` commit's Git objects, compares the exact
-required guide files, indexes, and state, and verifies that remote `main` still
-points to that commit. A mismatch stops the draft update. Runs are serialized
-and check out current `main` so queued runs do not render an older push. Avoid
-publishing or manually editing releases while drafting runs.
-
-The documentation PR action can shallow-fetch its automation branch. Before
-the final render, the updater restores full Git history if necessary, without
-changing the selected commit. A failed fetch stops the update; the previous
-release must still be an ancestor of that commit.
-
-This integration drafts stable, `v`-prefixed releases, as configured today.
-Prerelease drafts and drafts whose tags are not stable `vMAJOR.MINOR.PATCH`
-versions are left untouched, but block draft generation: the publishing
-workflow requires exactly one draft release. Resolve unrelated drafts before
-rerunning Release Drafter. Supporting a separate prerelease draft stream
-requires updating both draft selection and publishing alongside Release
-Drafter's configuration.
-
-After a release is published, fragments present at its tag are automatically
-excluded from the next draft. No fragment cleanup or manual reapplication of
-migration notes is needed. The fragments remain available in Git. Published
-GitHub Releases remain the changelog; committed versioned guides are the
-authoritative migration details.
-
-Manual additions to the draft body are still overwritten. Make unpublished
-migration corrections in their source fragments and merge them into `main`.
-The merge triggers **Release Drafter**, which can require another documentation
-PR before updating the draft. Manual runs also read `main`, not an unmerged branch.
-This automation does not create tags, publish releases, or change MinVer's
-version calculation.
+Release Drafter selects the latest `main` snapshot, resolves one version and
+previous-release boundary, and generates guides from retained fragments.
+All draft categories are child headings of **What's Changed**. Breaking-change
+entries link to committed topics on `main`, not future tags or unmerged files.
+Drafting never creates tags or publishes releases.
 
 ### Merge migration guides before updating the draft
 
-Authors maintain fragments in `.changes/`. Readers use
-[`docs/migrations/README.md`](docs/migrations/README.md), which links to version
-directories. Each directory contains a `README.md` topic index and one document
-per migration topic, such as
-`docs/migrations/3.0.0/credential-helper-errors.md`.
-Each generated topic records **Version introduced** from the preview's computed
-tag, without linking to a nonexistent release. Authors do not choose a version
-directory or duplicate the version in their fragments. The root index includes
-upcoming guides without describing them as published.
+The default paths remain `.changes/`, `docs/migrations/`, and
+`.github/migration-guides.json`. Preserve existing fragments, guides, indexes,
+and the state's `pending_versions`; onboarding does not reset them.
 
-If the required topics, indexes, and state do not exactly match the selected
-`main` commit, Release Drafter opens or updates one draft documentation PR on
-`automation/migration-guides`. The PR changes `docs/migrations/` and
-`.github/migration-guides.json`, whose `pending_versions` list tracks
-automation-owned unpublished guide directories. The PR uses
-`GITHUB_TOKEN` and the labels `semver:patch` and `documentation`, without
-`skip-changelog`. Release Drafter then explicitly fails with
-**WAITING FOR MIGRATION GUIDES** and leaves the existing release draft unchanged.
-That draft can still contain old inline migration text or a stale version.
+When generated files differ from `main`, drafting opens or updates
+`automation/migration-guides` as a draft PR with `semver:patch` and
+`documentation`, without `skip-changelog`. It then fails at **Wait for merged
+migration guides**, leaving the existing release draft unchanged.
 
-**Do not create a release tag while Release Drafter is waiting or its draft is
-stale.** The publishing workflow is unchanged and does not enforce this
-merged-guide gate. The maintainer must verify a successful drafting run before
-tagging.
+1. Review the generated topics, version, coverage, indexes, and state.
+2. Have a human mark the PR ready for review. Automation updates return it to
+   draft. Product CI and policy callers include `ready_for_review`; approve
+   workflow runs if GitHub requests approval.
+3. Merge after the required checks pass.
+4. Confirm that **Release Drafter** succeeds afterward. Dispatch it manually
+   if the merge does not trigger a run.
+5. Inspect the prepared draft and verify its links resolve to the expected
+   guides on `main`. Do not tag from an unchanged or stale draft.
 
-Complete the review and merge cycle:
-
-1. Review the generated documentation PR. Check the computed version, topic
-   coverage, consumer guidance, and links.
-2. Mark the PR ready for review to trigger CI and migration validation through
-   `ready_for_review`. If GitHub requests approval, select **Approve workflows
-   to run**.
-3. Merge the documentation PR after its required checks pass.
-4. Confirm that the next **Release Drafter** run succeeds. If the merge uses
-   `GITHUB_TOKEN` and does not trigger a run, dispatch Release Drafter manually.
-5. Check that the updated release draft proposes the intended version and that
-   its migration links resolve to the reviewed guides committed on `main`.
-   Only then proceed to [publish a release](#publish-a-release).
-
-PRs created or updated with `GITHUB_TOKEN` can start approval-required workflow
-runs for the `opened`, `synchronize`, and `reopened` events. A maintainer can select
-**Approve workflows to run** on the PR; see
-[GitHub's workflow-triggering rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
-
-Generated PRs use `draft: always-true`. Marking a PR ready for review also
-triggers CI and migration validation through their `ready_for_review` event.
-An automated update returns it to draft for another review.
-The workflow never commits directly to `main` or merges the PR.
-
-If the computed version changes while the documentation PR is open, automation
-reuses that PR for the new version. If the superseded proposal already merged,
-the next documentation PR generates the new version. Automation retains a
-superseded pending directory while any release body contains its `main` guide
-URL prefix. This keeps existing draft links usable while Release Drafter waits
-for the exact new guides and state to merge. Only after that merge does a
-successful run switch the draft to the new links.
-
-On a later Release Drafter run, superseded pending directories no longer linked
-from any release body can be removed through another documentation PR. Dispatch
-that run manually if necessary, then review and merge the cleanup PR and
-confirm Release Drafter succeeds. A superseded proposal that was never linked
-can be removed immediately as part of preparing the new version.
-
-Automation removes directories only when they are tracked in `pending_versions`,
-unpublished, and no longer linked from any release body. When a tag appears in
-the full published-release snapshot, automation preserves that version's
-directory and removes it from `pending_versions`. Published directories and
-corrections survive later runs; old released fragments are not reintroduced.
-Release bodies determine whether pending directories still have links, not
-whether a version is published, and never supply topic content. Older releases
-without guides are not backfilled. There is no separate post-publication
-Migration guides workflow.
-
-The PR policy also rejects guide deletions unless the version is listed in
-`pending_versions` at the current PR base commit. This includes version indexes;
-the root migration index cannot be deleted. Adding pending state in the cleanup
-PR or relying on an older merge base does not authorize deletion. Publication
-and live-link checks remain the generation workflow's responsibility.
+Published guides and retained source fragments stay in Git. Automation only
+proposes deletion of unlinked, unpublished versions recorded in
+`pending_versions`; published directories and corrections are retained.
+Superseded pending versions still linked by a release body remain until links
+switch. A later run and documentation PR may be needed for cleanup.
+The PR policy authorizes deletions from state at the current PR base, never
+from state introduced in the cleanup PR. Keep the root migration index.
 
 ### Correct migration guides
 
-For an unpublished change, correct its source fragment and merge the correction
-into `main`. Rerun Release Drafter and complete the documentation review and
-merge cycle above. Do not independently edit unpublished generated topics or
-manually maintain migration prose in the draft release.
+For unpublished changes, edit source fragments and merge them into `main`.
+Rerun drafting and complete any required documentation PR cycle. Do not edit
+unpublished generated topics independently or hand-edit preparation metadata.
 
-For a published change, correct the existing versioned topic through a reviewed
-documentation PR. Keep its path and fragment slug stable so release links remain
-valid. If its title changes, also update that version's `README.md` topic index:
-automation preserves published version files instead of regenerating them.
-The root version index remains generated. Keep the same six completed sections;
-the base-owned **Validate migration notes** check validates edited versioned
-topics, while indexes remain exempt.
+For published changes, correct the existing versioned topic through a reviewed
+documentation PR. Preserve paths and slugs. Update that version's `README.md`
+index if its topic title changes. Do not correct old fragments or published
+release bodies; existing links to `main` pick up the corrected topic.
 
-Do not edit published releases or old fragments to correct a published guide.
-Release links point to `main` and pick up the reviewed correction after merge.
-No archive or release-body regeneration is needed.
+### Upgrade the shared toolkit
+
+Follow the [toolkit upgrade procedure][toolkit-upgrading]. Verify a published
+stable tag's actual commit SHA, then update both reusable workflow references
+and both publication Action references together. Keep full 40-character SHA
+pins and matching release-tag comments.
+
+Renovate groups these four entrypoints as `release-automation`. Grouping does
+not prove compatibility or guarantee a complete upgrade. Review every pin and
+update the SHA-pinned links in `AGENTS.md`, `CONTRIBUTING.md`, and this document
+in the same PR. Run the consumer integration tests.
+
+Keep `release-drafter`, `cancel-in-progress: false`, and `queue: max` on the
+whole tag workflow. The drafting callee owns the same queue; do not duplicate
+its lock in the draft caller. GitHub's queue has a 100-pending-run limit.
+Refresh draft metadata with a successful upgraded drafting run before tagging.
 
 ## Configure trusted publishing
 
-Complete this setup before pushing the first release tag:
+Complete this setup before pushing a release tag:
 
 1. Create a GitHub Actions environment named `nuget.org`.
 2. Configure required reviewers or other deployment protection rules. Allow
-   deployments from the intended `v*` tags, and restrict who can create, update,
-   or delete release tags through repository rulesets.
-3. Confirm that the NuGet.org account `thalman` owns, or has permission to
-   publish, `Valleysoft.DockerCredsProvider`. The workflow's `NuGet/login` action
-   uses this account.
+   deployments from intended stable `v*` tags and restrict release-tag
+   creation, updates, and deletion with repository rulesets.
+3. Confirm that the NuGet.org account `thalman` owns, or can publish,
+   `Valleysoft.DockerCredsProvider`.
 4. Add a [NuGet.org trusted-publishing policy](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)
    with these values:
 
@@ -284,52 +188,68 @@ Complete this setup before pushing the first release tag:
    | Environment | `nuget.org` |
    | Package scope | `Valleysoft.DockerCredsProvider` |
 
-   Select the package owner and allow publication of new versions. The
-   environment in the policy must match the GitHub environment.
+   Select the package owner and allow publication of new versions.
 5. After configuring trusted publishing, remove the obsolete
    `NUGET_ORG_API_KEY` repository secret.
 
-Only the protected publishing job can request an OpenID Connect (OIDC) token.
-`NuGet/login` exchanges that token for a short-lived API key immediately before
-the package pushes. No long-lived NuGet API key is needed.
+Only the protected publishing job receives `contents: write` and
+`id-token: write` in the tag workflow. It uses `NuGet/login` to obtain a
+short-lived API key immediately before the package push.
+
+The shared Actions use `GITHUB_TOKEN`. Verify that it can see the prepared
+draft. GitHub can require workflow-modification authorization to publish an
+older target after default-branch workflow changes; `GITHUB_TOKEN` cannot
+receive that authorization. Follow the toolkit's
+[credential requirements][toolkit-publishing] if this occurs. Investigate the
+permission failure rather than moving a tag or bypassing validation.
 
 ## Publish a release
 
-Before starting, complete the trusted-publishing setup and confirm that the
-Release Drafter draft contains the intended changes and proposes the correct
-version. Require a successful Release Drafter run after any required migration
-documentation PR merges, and verify its links resolve to the expected guides on
-`main`. Do not tag from a draft left unchanged by **WAITING FOR MIGRATION
-GUIDES** or any failed drafting run. The publishing workflow does not check
-this gate for you.
+Complete trusted-publishing setup and the successful drafting/review cycle
+first. The release workflow checks preparation before external publication
+and rechecks it before finalizing, but NuGet and GitHub publication are not one
+atomic transaction.
 
-1. Create the tag on the intended release commit:
+1. Inspect the prepared draft:
 
    ```shell
-   git tag v1.2.3 <commit>
+   gh api repos/mthalman/docker-creds-provider/releases --paginate --jq '.[] | select(.draft) | {tag_name, target_commitish, html_url}'
    ```
 
-2. Push the tag:
+   Expect exactly one draft. Review its stable tag, full prepared commit SHA,
+   release notes, CI results, and migration links.
+2. Create and push that exact tag at that exact commit, not the current `main`
+   tip. Substitute both values below with the draft's values:
 
    ```shell
+   git tag v1.2.3 <prepared-commit-sha>
    git push origin v1.2.3
    ```
 
-3. Approve the deployment to `nuget.org` if GitHub requests approval.
-4. Confirm that the workflow succeeds, NuGet.org lists the intended version
-   and accepts its symbols, and the corresponding GitHub Release contains
-   both the `.nupkg` and `.snupkg` attachments.
+3. Approve deployment to `nuget.org` if requested. The whole build/publish job
+   now runs after this approval so preparation precedes all consumer steps.
+4. Confirm that NuGet.org lists the intended version and accepts its symbols,
+   and that the published GitHub Release has both package attachments.
 
-The workflow builds and tests the tagged commit, packs once without rebuilding,
-and requires exactly one package and one symbol package whose filenames match
-the tag. It retains the package and symbols as workflow artifacts for one day.
+The protected job calls `prepare-release`, checks out its validated source
+with full history, builds/tests/packs once, and requires exactly one `.nupkg`
+and one `.snupkg` matching the prepared version. It retains these as workflow
+artifacts for one day. It then pushes to NuGet, attaches both files to the
+existing draft, and calls `finalize-release` with the unmodified prepare
+context. Finalization preserves the prepared release's notes and title.
 
-The protected publishing job downloads those artifacts without rebuilding. It
-reuses an existing published GitHub Release for the tag, or requires exactly one
-draft release. After pushing to NuGet.org, it publishes that draft with the
-release tag and attaches the package and symbols. NuGet pushes skip duplicates,
-and GitHub attachment uploads replace same-named assets on reruns.
+The entire tag workflow shares drafting's concurrency queue, including while
+waiting for environment approval. Do not leave an approval pending when a
+drafting run must proceed.
 
-Tags such as `v1.2.3-preview.1` produce prerelease GitHub Releases that are not
-marked latest. Stable releases are marked latest. Rerunning an already
-published release does not change its notes or latest status.
+For an already-published prepared release, rerunning the original tag-creation
+run skips the build, NuGet login/push, uploads, and finalization. An old release
+without preparation metadata is not an eligible no-op rerun. If NuGet succeeds
+but a later step fails, inspect both services and rerun the original run when
+safe: NuGet skips duplicates and attachment uploads replace same-named files.
+There is no rollback of external effects. Never delete/recreate or force-move
+a tag to repair a failed gate.
+
+[toolkit-maintainers]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/maintainer-guide.md
+[toolkit-upgrading]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/upgrading.md
+[toolkit-publishing]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/tag-publishing.md
