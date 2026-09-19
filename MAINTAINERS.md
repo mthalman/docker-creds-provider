@@ -192,9 +192,12 @@ Complete this setup before pushing a release tag:
 5. After configuring trusted publishing, remove the obsolete
    `NUGET_ORG_API_KEY` repository secret.
 
-Only the protected publishing job receives `contents: write` and
-`id-token: write` in the tag workflow. It uses `NuGet/login` to obtain a
-short-lived API key immediately before the package push.
+Only the protected publishing job receives `id-token: write`. It uses
+`NuGet/login` to obtain a short-lived API key immediately before the package
+push. The preparation-only job also receives `contents: write` for draft
+visibility, but runs only the pinned toolkit Action, without a consumer
+checkout or OIDC. Consumer restore/build/test/pack runs in a separate job with
+only `contents: read`, no environment, and no OIDC permission.
 
 The shared Actions use `GITHUB_TOKEN`. Verify that it can see the prepared
 draft. GitHub can require workflow-modification authorization to publish an
@@ -226,17 +229,25 @@ atomic transaction.
    git push origin v1.2.3
    ```
 
-3. Approve deployment to `nuget.org` if requested. The whole build/publish job
-   now runs after this approval so preparation precedes all consumer steps.
+3. After the read-only build succeeds, approve deployment to `nuget.org` if
+   requested. Publication revalidates preparation after approval.
 4. Confirm that NuGet.org lists the intended version and accepts its symbols,
    and that the published GitHub Release has both package attachments.
 
-The protected job calls `prepare-release`, checks out its validated source
-with full history, builds/tests/packs once, and requires exactly one `.nupkg`
-and one `.snupkg` matching the prepared version. It retains these as workflow
-artifacts for one day. It then pushes to NuGet, attaches both files to the
-existing draft, and calls `finalize-release` with the unmodified prepare
-context. Finalization preserves the prepared release's notes and title.
+The preparation-only job calls `prepare-release`. The read-only build job
+checks out its validated source with full history, builds/tests/packs, and
+requires exactly one `.nupkg` and one `.snupkg` matching the prepared version.
+It retains these as a workflow artifact for one day and passes its immutable
+artifact ID to the publishing job.
+
+After environment approval, the publishing job calls `prepare-release` again
+and requires its context to match the original preparation. It downloads only
+that artifact ID, without checking out or executing consumer source, pushes
+to NuGet, and attaches both files to the existing draft. It then calls
+`finalize-release` with the unmodified revalidated context. Finalization
+preserves the prepared release's notes and title. If preparation changes,
+review the release and rerun preparation and build rather than publishing
+artifacts from a different preparation.
 
 The entire tag workflow shares drafting's concurrency queue, including while
 waiting for environment approval. Do not leave an approval pending when a

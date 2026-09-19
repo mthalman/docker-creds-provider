@@ -117,8 +117,13 @@ reviewed full toolkit release SHA, with matching version comments. Synchronize
 SHA-pinned documentation links when upgrading. Do not add the shared
 `release-drafter` concurrency group to the draft caller: the callee owns it.
 The whole tag workflow shares that group with `cancel-in-progress: false` and
-`queue: max`. Retain the protected `nuget.org` environment, OIDC publishing,
-prepared-source checkout, and already-published guards.
+`queue: max`. Run consumer restore/build/test/pack only in a `contents: read`
+job without OIDC or environment access. Preparation may read drafts with
+`contents: write` but must not execute consumer code. Retain the protected
+`nuget.org` publishing job, OIDC publishing, prepared-source checkout in the
+build job, immutable artifact-ID handoff, and already-published guards.
+Revalidate preparation after approval and compare contexts before publishing;
+the privileged jobs must not check out or execute repository code.
 
 When changing this repository's integration, run its local contract tests from
 the repository root:

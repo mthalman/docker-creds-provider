@@ -14,65 +14,70 @@ concurrency:
   queue: max
 
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-latest
-    environment: nuget.org
     permissions:
       contents: write
-      id-token: write
+    outputs:
+      sha: ${{ steps.prepare.outputs.sha }}
+      version: ${{ steps.prepare.outputs.version }}
+      context: ${{ steps.prepare.outputs.context }}
+      already-published: ${{ steps.prepare.outputs.already-published }}
     steps:
       - name: Prepare release
         id: prepare
         uses: mthalman/release-automation/actions/prepare-release@90551757fe8b061d4dff1a4cab12f10e58f07201 # v1.0.1
 
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.already-published != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.packages.outputs.artifact-id }}
+    steps:
       - name: Check out validated source
-        if: steps.prepare.outputs.already-published != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ steps.prepare.outputs.sha }}
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup .NET Core SDK
-        if: steps.prepare.outputs.already-published != 'true'
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
 
       - name: Install dependencies
-        if: steps.prepare.outputs.already-published != 'true'
         working-directory: src
         run: dotnet restore
 
       - name: Build
-        if: steps.prepare.outputs.already-published != 'true'
         working-directory: src
         run: dotnet build -c Release --no-restore
 
       - name: Test
         id: test
-        if: steps.prepare.outputs.already-published != 'true'
         working-directory: src
         run: dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
 
       - name: Upload Test Results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && steps.test.outcome != 'skipped' && steps.prepare.outputs.already-published == 'false'
+        if: always() && steps.test.outcome != 'skipped'
         with:
           name: test-results
           path: src/test-results/*
 
       - name: Pack
-        if: steps.prepare.outputs.already-published != 'true'
         working-directory: src
         run: dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCredsProvider
 
       - name: Validate package version
-        if: steps.prepare.outputs.already-published != 'true'
         shell: bash
         working-directory: src
         env:
-          PACKAGE_VERSION: ${{ steps.prepare.outputs.version }}
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           expected_package="package-output/Valleysoft.DockerCredsProvider.${PACKAGE_VERSION}.nupkg"
           expected_symbols="package-output/Valleysoft.DockerCredsProvider.${PACKAGE_VERSION}.snupkg"
@@ -91,15 +96,53 @@ jobs:
           fi
 
       - name: Upload packages
-        if: steps.prepare.outputs.already-published != 'true'
+        id: packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nuget-packages-${{ steps.prepare.outputs.version }}
+          name: nuget-packages-${{ needs.prepare.outputs.version }}
           path: |
             src/package-output/*.nupkg
             src/package-output/*.snupkg
           if-no-files-found: error
           retention-days: 1
+
+  publish:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.already-published != 'true'
+    runs-on: ubuntu-latest
+    environment: nuget.org
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Revalidate release after approval
+        id: prepare
+        uses: mthalman/release-automation/actions/prepare-release@90551757fe8b061d4dff1a4cab12f10e58f07201 # v1.0.1
+
+      - name: Verify preparation matches built artifacts
+        if: steps.prepare.outputs.already-published != 'true'
+        shell: bash
+        env:
+          BUILD_CONTEXT: ${{ needs.prepare.outputs.context }}
+          PUBLISH_CONTEXT: ${{ steps.prepare.outputs.context }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+        run: |
+          if [[ -z "$BUILD_CONTEXT" || "$BUILD_CONTEXT" != "$PUBLISH_CONTEXT" ]]; then
+            echo "::error::Release preparation changed after the build. Review the release and rerun preparation and build before publishing."
+            exit 1
+          fi
+          if [[ ! "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::The build did not provide a valid package artifact ID."
+            exit 1
+          fi
+
+      - name: Download validated packages
+        if: steps.prepare.outputs.already-published != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact-id }}
+          path: package-output
+          merge-multiple: true
 
       - name: Log in to NuGet.org
         id: nuget-login
@@ -110,7 +153,6 @@ jobs:
 
       - name: Publish Package
         if: steps.prepare.outputs.already-published != 'true'
-        working-directory: src
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
           PACKAGE_VERSION: ${{ steps.prepare.outputs.version }}
@@ -124,7 +166,6 @@ jobs:
       - name: Attach packages to GitHub Release
         if: steps.prepare.outputs.already-published != 'true'
         shell: bash
-        working-directory: src
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
