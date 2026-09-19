@@ -50,8 +50,10 @@ the linked .NET-based format, not a PR summary or commit log.
 
 Use a unique lowercase slug; the filename does not need a PR number. Keep
 released fragments in Git, never rename or reuse them, and do not manually
-maintain migration prose in the draft release. Release Drafter renders selected
-fragments with Towncrier into versioned guides before updating the draft and
+maintain migration prose in the draft release. The pinned
+[`mthalman/release-automation` toolkit](https://github.com/mthalman/release-automation/tree/90551757fe8b061d4dff1a4cab12f10e58f07201)
+owns policy validation, rendering, drafting, and publication checks. Release
+Drafter renders selected fragments with Towncrier into versioned guides before updating the draft and
 excludes already released fragments.
 Do not label a breaking-change PR `skip-changelog`.
 
@@ -75,8 +77,10 @@ trigger a run. Automation never writes directly to `main` or merges PRs.
 Successful drafts place concise linked topic titles inside the `Breaking Changes`
 category under `What's Changed`. All categories are child headings of
 `What's Changed`. Links point to committed guides on `main`, not future tags or
-unmerged files. Never tag a release based on a waiting or stale draft; the
-publishing workflow does not enforce this gate.
+unmerged files. Never tag a release based on a waiting or stale draft.
+The publishing workflow accepts only a new stable `vMAJOR.MINOR.PATCH` tag at
+the exact prepared draft commit. Prepare and finalize validate the release
+before and after consumer-owned NuGet publication steps.
 
 For unpublished corrections, edit the source fragment and rerun Release
 Drafter. Do not edit unpublished generated guides independently. The metadata
@@ -101,18 +105,32 @@ are not backfilled from release bodies. There is no post-publication archive
 workflow. Do not put authoring instructions in `docs/migrations/`.
 
 Keep policy enforcement separate from tooling tests. The **Migration note
-policy** workflow uses `pull_request_target` and executes only the validator
-from the base commit. Fetch PR commits as Git data, but never check out or
-execute PR code or install PR dependencies in that job. The same six ordered
-sections are validated in fragments and versioned topics; navigation indexes
-are exempt. Proposed tooling and dependency changes are tested separately
-through `pull_request`.
+policy** workflow uses `pull_request_target` and executes the immutable toolkit
+validator with configuration and state from the base commit. Fetch PR commits
+as Git data, but never check out or execute PR code or install PR dependencies
+in that job. The same six ordered sections are validated in fragments and
+versioned topics; navigation indexes are exempt. Toolkit implementation and
+dependency tests live upstream, not in a separate consumer workflow.
 
-When changing migration tooling, run its tests from the repository root:
+Keep both reusable workflow pins and both publication Action pins on the same
+reviewed full toolkit release SHA, with matching version comments. Synchronize
+SHA-pinned documentation links when upgrading. Do not add the shared
+`release-drafter` concurrency group to the draft caller: the callee owns it.
+The whole tag workflow shares that group with `cancel-in-progress: false` and
+`queue: max`. Run consumer restore/build/test/pack only in a `contents: read`
+job without OIDC or environment access. Preparation may read drafts with
+`contents: write` but must not execute consumer code. Retain the protected
+`nuget.org` publishing job, OIDC publishing, prepared-source checkout in the
+build job, immutable artifact-ID handoff, and already-published guards.
+Revalidate preparation after approval and compare contexts before publishing;
+the privileged jobs must not check out or execute repository code.
+
+When changing this repository's integration, run its local contract tests from
+the repository root:
 
 ```shell
 python -m pip install -r .github/scripts/requirements.txt
-python -B -m unittest discover -s .github/scripts -p test_migration_notes.py
+python -B -m unittest discover -s .github/scripts -p test_release_automation.py
 ```
 
 ## Pull request labels
