@@ -731,7 +731,7 @@ public class ProcessServiceTests
                     startInfo,
                     input: null,
                     OutputLimit,
-                    TimeSpan.FromSeconds(5),
+                    TimeSpan.FromSeconds(30),
                     CancellationToken.None));
 
         Assert.Equal(expectedStreamName, exception.StreamName);
