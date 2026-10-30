@@ -28,6 +28,11 @@ string? identityToken = credentials.IdentityToken;
 Pass a registry hostname or HTTP(S) URL. The library retrieves configured
 credentials; it does not authenticate with the registry.
 
+A hostname may end in a single period (for example, `registry.example.com.`),
+including in a URL or before a port. The period is preserved for credential
+lookup and helper input; dotted and undotted hostnames are distinct credential
+keys.
+
 ## Configuration
 
 The library supports native credential helpers and inline credentials in

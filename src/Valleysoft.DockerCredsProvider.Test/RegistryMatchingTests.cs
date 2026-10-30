@@ -18,6 +18,12 @@ public class RegistryMatchingTests
     [InlineData("registry.example.com", "http://registry.example.com")]
     [InlineData("registry.example.com", "https://registry.example.com/v1/")]
     [InlineData("REGISTRY.EXAMPLE.COM", "registry.example.com")]
+    [InlineData("registry.example.com.", "registry.example.com.")]
+    [InlineData("https://registry.example.com./v2/", "registry.example.com.")]
+    [InlineData("http://registry.example.com.:5000/v2/", "registry.example.com.:5000")]
+    [InlineData("registry.example.com.:5000", "https://registry.example.com.:5000/v2/")]
+    [InlineData("registry.example.com.", "http://registry.example.com./v1/")]
+    [InlineData("registry.", "registry.")]
     public async Task DockerInlineAuthMatchesRegistryScope(
         string requestedRegistry,
         string configuredRegistry)
@@ -175,6 +181,11 @@ public class RegistryMatchingTests
     [InlineData("https://registry.example.com/team/image", "registry.example.com/team/image")]
     [InlineData("registry.example.com:5000/team/image", "registry.example.com:5000/team/image")]
     [InlineData("registry.example.com/team/image", "registry.example.com")]
+    [InlineData("registry.example.com.", "registry.example.com.")]
+    [InlineData("https://registry.example.com./v2/", "registry.example.com.")]
+    [InlineData("http://registry.example.com.:5000/team/image", "registry.example.com.:5000/team")]
+    [InlineData("registry.example.com.:5000", "https://registry.example.com.:5000/v2/")]
+    [InlineData("registry.example.com.", "http://registry.example.com./v1/")]
     public async Task ContainersInlineAuthMatchesExactNamespaceThenHost(
         string requestedRegistry,
         string configuredRegistry)
@@ -498,6 +509,75 @@ public class RegistryMatchingTests
         processService.VerifyAll();
     }
 
+    [Theory]
+    [InlineData(true, "registry.example.com.", "registry.example.com.")]
+    [InlineData(false, "registry.example.com.", "registry.example.com.")]
+    [InlineData(true, "https://registry.example.com./v2/", "registry.example.com.")]
+    [InlineData(false, "https://registry.example.com./v2/", "registry.example.com.")]
+    [InlineData(true, "http://registry.example.com.:5000/team", "registry.example.com.:5000")]
+    [InlineData(false, "http://registry.example.com.:5000/team", "registry.example.com.:5000")]
+    public async Task RootedHostnameCredentialHelperPreservesAuthority(
+        bool useDockerConfig,
+        string requestedRegistry,
+        string configuredRegistry)
+    {
+        const string Helper = "example";
+        string config = $"{{ \"credHelpers\": {{ \"{configuredRegistry}\": \"{Helper}\" }} }}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) = CreateConfig(
+            config,
+            useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers);
+        AddCredentialHelper(fileSystem, environment, Helper);
+
+        Mock<IProcessService> processService = new();
+        processService.StubHelperSuccess(
+            Helper,
+            configuredRegistry,
+            "{ \"Username\": \"helper-user\", \"Secret\": \"helper-password\" }");
+
+        DockerCredentials credentials = await CredsProvider.GetCredentialsAsync(
+            requestedRegistry,
+            fileSystem.Object,
+            processService.Object,
+            environment.Object);
+
+        Assert.Equal("helper-user", credentials.Username);
+        processService.VerifyAll();
+    }
+
+    [Theory]
+    [InlineData(true, "registry.example.com.", "registry.example.com")]
+    [InlineData(false, "registry.example.com.", "registry.example.com")]
+    [InlineData(true, "registry.example.com", "registry.example.com.")]
+    [InlineData(false, "registry.example.com", "registry.example.com.")]
+    [InlineData(true, "https://registry.example.com.:5000/v2/", "registry.example.com:5000")]
+    [InlineData(false, "https://registry.example.com.:5000/v2/", "registry.example.com:5000")]
+    [InlineData(true, "http://registry.example.com:5000/v2/", "https://registry.example.com.:5000/v1/")]
+    [InlineData(false, "http://registry.example.com:5000/v2/", "https://registry.example.com.:5000/v1/")]
+    [InlineData(true, "docker.io.", "https://index.docker.io/v1/")]
+    [InlineData(false, "docker.io.", "https://index.docker.io/v1/")]
+    [InlineData(true, "docker.io", "docker.io.")]
+    [InlineData(false, "docker.io", "docker.io.")]
+    public async Task CredentialsDoNotTreatRootedAndUnrootedAuthoritiesAsEquivalent(
+        bool useDockerConfig,
+        string requestedRegistry,
+        string configuredRegistry)
+    {
+        string config =
+            "{" +
+                $"\"auths\": {{ \"{configuredRegistry}\": {{ \"auth\": \"{EncodeCredentials("unexpected-user")}\" }} }}," +
+                $"\"credHelpers\": {{ \"{configuredRegistry}\": \"unexpected-helper\" }}" +
+            "}";
+        (Mock<IFileSystem> fileSystem, Mock<IEnvironment> environment) = CreateConfig(
+            config,
+            useDockerConfig ? RegistryConfigFormat.Docker : RegistryConfigFormat.Containers);
+
+        await Assert.ThrowsAsync<CredsNotFoundException>(() => CredsProvider.GetCredentialsAsync(
+            requestedRegistry,
+            fileSystem.Object,
+            Mock.Of<IProcessService>(MockBehavior.Strict),
+            environment.Object));
+    }
+
     [Fact]
     public async Task DockerCredentialHelperDoesNotMatchRepositoryNamespace()
     {
@@ -726,6 +806,10 @@ public class RegistryMatchingTests
     [InlineData("https://registry.example.com/team/image", "registry.example.com")]
     [InlineData("docker.io/library/alpine", "https://index.docker.io/v1/")]
     [InlineData("DOCKER.IO/library/alpine", "DOCKER.IO")]
+    [InlineData("registry.example.com.", "registry.example.com.")]
+    [InlineData("https://registry.example.com./v2/", "registry.example.com.")]
+    [InlineData("http://registry.example.com.:5000/v2/", "registry.example.com.:5000")]
+    [InlineData("docker.io.", "docker.io.")]
     public async Task DockerGlobalCredentialStoreReceivesCanonicalKey(
         string requestedRegistry,
         string expectedHelperInput)
@@ -791,6 +875,14 @@ public class RegistryMatchingTests
     [InlineData("registry.example.com:+5000")]
     [InlineData("registry_1.example.com")]
     [InlineData("registry.example-")]
+    [InlineData(".")]
+    [InlineData(".registry.example.com.")]
+    [InlineData("registry..example.com.")]
+    [InlineData("registry.example.com..")]
+    [InlineData("https://registry..example.com./v2/")]
+    [InlineData("http://registry.example.com..:5000/v2/")]
+    [InlineData("registry.example.com.:0")]
+    [InlineData("https://registry.example.com.:65536/v2/")]
     [InlineData("registry.example.com:0")]
     [InlineData("registry.example.com:65536")]
     [InlineData("registry.example.com//team")]
