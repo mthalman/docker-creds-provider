@@ -7,6 +7,9 @@ files, or multiple inline credentials for the same registry. You generally do
 not need to change calls that pass a valid hostname and use a single matching
 Docker inline credential.
 
+Also review deployments that set `XDG_CONFIG_HOME`, especially when
+`XDG_CONFIG_DIR` points to a different directory.
+
 Docker Desktop users with its automatically configured credential store generally
 do not need to edit their configuration for the Docker Hub key change below.
 The helper example applies to a custom `credHelpers` entry.
@@ -22,6 +25,10 @@ case-insensitive host match, ignoring namespace paths. `credHelpers` keys
 matched the original API argument exactly, and helpers received that argument
 unchanged. A global `credsStore` worked in both Docker and containers auth files.
 Malformed non-null arguments were not explicitly rejected before lookup.
+
+For the containers configuration directory, the library checked `XDG_CONFIG_DIR`
+and ignored `XDG_CONFIG_HOME`. If `XDG_CONFIG_DIR` was unset or empty, it used
+`.config` under the user's profile directory.
 
 ### Example: Docker Hub credential helper
 
@@ -72,6 +79,19 @@ equivalent keys, rather than taking the first host match. Duplicate keys use
 their last definition. Invalid arguments now throw `ArgumentException` before
 lookup; null still throws `ArgumentNullException`.
 
+The containers configuration directory now comes from nonempty
+`XDG_CONFIG_HOME`. The deprecated `XDG_CONFIG_DIR` alias is consulted only when
+`XDG_CONFIG_HOME` is unset or empty. If both are unset or empty, the directory
+still defaults to `.config` under the user's profile. The candidate file is
+`containers/auth.json` within the selected directory.
+
+Directory selection does not depend on whether that file exists or contains
+matching credentials. When nonempty `XDG_CONFIG_HOME` is set, the library never
+falls back to `XDG_CONFIG_DIR`, even if the `XDG_CONFIG_HOME` auth file is missing. Other
+discovery rules are unchanged: nonempty `REGISTRY_AUTH_FILE` selects only that
+file; otherwise the `XDG_RUNTIME_DIR` containers file is checked before the
+selected config-directory file, followed by Docker's configuration.
+
 ### Example: Docker Hub credential helper
 
 With the unchanged configuration, this call no longer selects the
@@ -108,7 +128,9 @@ If no other credentials match, the second call throws `CredsNotFoundException`.
 **Behavioral change.** Existing calls can select different credentials or helpers,
 stop finding credentials, send a different server key to a helper, or throw
 `ArgumentException` instead of reaching configuration lookup. Public method
-signatures are unchanged.
+signatures are unchanged. Setting `XDG_CONFIG_HOME` can now select different
+credentials or exclude credentials that were previously found through
+`XDG_CONFIG_DIR` or the default `.config` directory.
 
 ## Reason for change
 
@@ -116,6 +138,9 @@ Docker and containers auth files have different registry and namespace
 semantics. Format-aware lookup prevents unrelated namespace credentials from
 being selected and makes helper lookup consistent with the server key supplied
 to the helper.
+Using `XDG_CONFIG_HOME` aligns containers configuration discovery with the XDG
+setting, while retaining `XDG_CONFIG_DIR` as a compatibility alias when
+`XDG_CONFIG_HOME` is unset or empty.
 
 ## Recommended action
 
@@ -171,6 +196,34 @@ Already matching host-and-port keys need no change.
 
 ### Containers/Podman auth files
 
+#### Select the intended configuration directory
+
+If you set both variables to different directories, decide which auth file
+the application should use. For example, with `XDG_CONFIG_HOME=/srv/new-config`
+and `XDG_CONFIG_DIR=/srv/legacy-config`, older versions checked
+`/srv/legacy-config/containers/auth.json`; 3.0.0 checks
+`/srv/new-config/containers/auth.json` instead. A missing file at the new location
+does not cause a retry at the legacy location.
+
+To keep using the legacy file, set `XDG_CONFIG_HOME=/srv/legacy-config` in the
+application's environment, or unset/empty `XDG_CONFIG_HOME` while retaining the
+alias. Prefer setting `XDG_CONFIG_HOME` explicitly and retiring the deprecated alias. To
+adopt the new directory, securely provision the intended `containers/auth.json`
+there with appropriate permissions. If you previously relied on the default
+profile `.config` directory while setting `XDG_CONFIG_HOME` elsewhere, point
+`XDG_CONFIG_HOME` at that default directory or provision the new location.
+
+Verify with a disposable configuration and distinct non-secret usernames in the
+`XDG_CONFIG_HOME`, `XDG_CONFIG_DIR`, and Docker files. Unset `REGISTRY_AUTH_FILE`
+and `XDG_RUNTIME_DIR` in that isolated test so they do not mask directory
+selection. With both config variables set, confirm that a lookup uses
+`XDG_CONFIG_HOME` credentials. Remove that auth file and confirm that
+`XDG_CONFIG_DIR` credentials are not used; lookup can continue to Docker's file.
+Then unset or empty `XDG_CONFIG_HOME` and confirm that the `XDG_CONFIG_DIR` file
+is used. Do not log passwords or tokens.
+
+#### Update containers credential entries
+
 If your file uses `"credsStore": "example"`, replace it with explicit helpers
 for each registry you use:
 
@@ -223,10 +276,12 @@ Both public overloads in `Valleysoft.DockerCredsProvider` are affected:
 - `CredsProvider.GetCredentialsAsync(string registry, CancellationToken cancellationToken)`
 
 Affected configuration includes `auths`, `credHelpers`, `credsStore`,
-`REGISTRY_AUTH_FILE`, and `DOCKER_CONFIG`.
+`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`, `XDG_CONFIG_HOME`, and the deprecated
+`XDG_CONFIG_DIR` alias.
 
 ## References
 
+- [XDG_CONFIG_HOME discovery and deprecated alias precedence (#94)](https://github.com/mthalman/docker-creds-provider/pull/94)
 - [Format-aware registry matching (#95)](https://github.com/mthalman/docker-creds-provider/pull/95)
 - [Parent-namespace fallback added to containers lookup (#96)](https://github.com/mthalman/docker-creds-provider/pull/96)
 - [Docker credential helper protocol](https://docs.docker.com/reference/cli/docker/login/#credential-helper-protocol)
