@@ -403,48 +403,31 @@ public class ProcessServiceTests
     {
         ProcessStartInfo startInfo = CreateHelperCommand("wait");
         using CancellationTokenSource cancellationSource = new(TimeSpan.FromMilliseconds(200));
-        Process? startedProcess = null;
-        Process? cleanupProcess = null;
+        using ProcessObservation observation = new();
         int attempts = 0;
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        try
-        {
-            OperationCanceledException exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                new ProcessService(
-                    process =>
-                    {
-                        startedProcess = process;
-                        cleanupProcess = Process.GetProcessById(process.Id);
-                    },
-                    _ =>
-                    {
-                        attempts++;
-                        throw new Win32Exception("Simulated termination failure.");
-                    })
-                .RunAsync(
-                    startInfo,
-                    new string('x', OutputLimit),
-                    OutputLimit,
-                    TimeSpan.FromSeconds(30),
-                    cancellationSource.Token));
+        OperationCanceledException exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new ProcessService(
+                observation.Capture,
+                _ =>
+                {
+                    attempts++;
+                    throw new Win32Exception("Simulated termination failure.");
+                })
+            .RunAsync(
+                startInfo,
+                new string('x', OutputLimit),
+                OutputLimit,
+                TimeSpan.FromSeconds(30),
+                cancellationSource.Token));
 
-            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
-            Assert.Equal(1, attempts);
-            Assert.NotNull(startedProcess);
-            Assert.Throws<InvalidOperationException>(() => _ = startedProcess.SafeHandle);
-            Assert.Equal(
-                "Credential helper termination could not be confirmed; the process may still be running.",
-                exception.Data["CredentialHelperCleanup"]);
-        }
-        finally
-        {
-            if (cleanupProcess is not null)
-            {
-                cleanupProcess.Kill(entireProcessTree: true);
-                cleanupProcess.Dispose();
-            }
-        }
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
+        Assert.Equal(1, attempts);
+        observation.AssertRunningAndDisposed();
+        Assert.Equal(
+            "Credential helper termination could not be confirmed; the process may still be running.",
+            exception.Data["CredentialHelperCleanup"]);
     }
 
     [Theory]
@@ -531,10 +514,10 @@ public class ProcessServiceTests
     public async Task RunAsync_UnconfirmedTerminationDoesNotExtendTimeoutIndefinitely()
     {
         ProcessStartInfo startInfo = CreateHelperCommand("wait");
-        Process? cleanupProcess = null;
+        using ProcessObservation observation = new();
         Stopwatch stopwatch = Stopwatch.StartNew();
         Task runTask = new ProcessService(
-            process => cleanupProcess = Process.GetProcessById(process.Id),
+            observation.Capture,
             _ => true).RunAsync(
                 startInfo,
                 input: null,
@@ -542,27 +525,17 @@ public class ProcessServiceTests
                 TimeSpan.FromMilliseconds(200),
                 CancellationToken.None);
 
-        try
-        {
-            Task completedTask = await Task.WhenAny(
-                runTask,
-                Task.Delay(TimeSpan.FromSeconds(5)));
+        Task completedTask = await Task.WhenAny(
+            runTask,
+            Task.Delay(TimeSpan.FromSeconds(5)));
 
-            Assert.Same(runTask, completedTask);
-            TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => runTask);
-            Assert.Equal(
-                "Credential helper termination could not be confirmed; the process may still be running.",
-                exception.Data["CredentialHelperCleanup"]);
-            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
-        }
-        finally
-        {
-            if (cleanupProcess is not null)
-            {
-                cleanupProcess.Kill(entireProcessTree: true);
-                cleanupProcess.Dispose();
-            }
-        }
+        Assert.Same(runTask, completedTask);
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => runTask);
+        Assert.Equal(
+            "Credential helper termination could not be confirmed; the process may still be running.",
+            exception.Data["CredentialHelperCleanup"]);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5));
+        observation.AssertRunningAndDisposed();
     }
 
     [Fact]
@@ -598,15 +571,7 @@ public class ProcessServiceTests
         }
         finally
         {
-            if (File.Exists(childProcessIdPath))
-            {
-                int childProcessId = int.Parse(
-                    File.ReadAllText(childProcessIdPath),
-                    CultureInfo.InvariantCulture);
-                using Process childProcess = Process.GetProcessById(childProcessId);
-                childProcess.Kill(entireProcessTree: true);
-                File.Delete(childProcessIdPath);
-            }
+            CleanupChild(null, childProcessIdPath);
         }
     }
 
