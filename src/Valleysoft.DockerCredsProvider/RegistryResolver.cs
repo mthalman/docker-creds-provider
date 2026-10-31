@@ -314,6 +314,11 @@ internal sealed class RegistryReference
                 IsValidIPv6Address(host, address);
         }
 
+        if (host.EndsWith(".", StringComparison.Ordinal))
+        {
+            host = host.Substring(0, host.Length - 1);
+        }
+
         return host.Length > 0 &&
             host.Split('.').All(label =>
                 label.Length > 0 &&
