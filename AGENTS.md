@@ -51,7 +51,7 @@ the linked .NET-based format, not a PR summary or commit log.
 Use a unique lowercase slug; the filename does not need a PR number. Keep
 released fragments in Git, never rename or reuse them, and do not manually
 maintain migration prose in the draft release. The pinned
-[`mthalman/release-automation` toolkit](https://github.com/mthalman/release-automation/tree/90551757fe8b061d4dff1a4cab12f10e58f07201)
+[`mthalman/release-automation` toolkit](https://github.com/mthalman/release-automation/tree/dbda9774dde7b70af4eb22be7257ee9cd17c2d6f)
 owns policy validation, rendering, drafting, and publication checks. Release
 Drafter renders selected fragments with Towncrier into versioned guides before updating the draft and
 excludes already released fragments.

@@ -43,8 +43,8 @@ release. See [Publish a release](#publish-a-release).
 
 ## Manage release notes
 
-The repository uses `mthalman/release-automation` **v1.0.1**, pinned to
-`90551757fe8b061d4dff1a4cab12f10e58f07201`, with its default paths, labels, and
+The repository uses `mthalman/release-automation` **v1.0.2**, pinned to
+`dbda9774dde7b70af4eb22be7257ee9cd17c2d6f`, with its default paths, labels, and
 category titles. No consumer configuration file is needed. The toolkit owns
 Release Drafter configuration, Towncrier assets, and Python implementation;
 do not restore local copies.
@@ -261,6 +261,6 @@ safe: NuGet skips duplicates and attachment uploads replace same-named files.
 There is no rollback of external effects. Never delete/recreate or force-move
 a tag to repair a failed gate.
 
-[toolkit-maintainers]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/maintainer-guide.md
-[toolkit-upgrading]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/upgrading.md
-[toolkit-publishing]: https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/tag-publishing.md
+[toolkit-maintainers]: https://github.com/mthalman/release-automation/blob/dbda9774dde7b70af4eb22be7257ee9cd17c2d6f/docs/maintainer-guide.md
+[toolkit-upgrading]: https://github.com/mthalman/release-automation/blob/dbda9774dde7b70af4eb22be7257ee9cd17c2d6f/docs/upgrading.md
+[toolkit-publishing]: https://github.com/mthalman/release-automation/blob/dbda9774dde7b70af4eb22be7257ee9cd17c2d6f/docs/tag-publishing.md

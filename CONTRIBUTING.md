@@ -131,8 +131,8 @@ standard. GitHub Releases remain this repository's changelog.
 
 [Towncrier](https://towncrier.readthedocs.io/) rendering runs in the shared
 toolkit, not this repository. Use a separate trusted toolkit checkout at
-`90551757fe8b061d4dff1a4cab12f10e58f07201` and follow its
-[local preview instructions](https://github.com/mthalman/release-automation/blob/90551757fe8b061d4dff1a4cab12f10e58f07201/docs/local-development.md).
+`dbda9774dde7b70af4eb22be7257ee9cd17c2d6f` and follow its
+[local preview instructions](https://github.com/mthalman/release-automation/blob/dbda9774dde7b70af4eb22be7257ee9cd17c2d6f/docs/local-development.md).
 Those instructions install the pinned rendering dependencies with Python 3.13.
 Pass this repository as `--repo`, `main` as `--default-branch`, and the previous
 published stable release tag as `--base`. Commit fragments before previewing:
@@ -148,7 +148,8 @@ python -B -m unittest discover -s .github/scripts -p test_release_automation.py
 These tests require Python and Bash (Git for Windows provides Bash). They check
 the consumer workflow contract and execute the package-version validation
 script. Toolkit unit tests remain upstream; the trusted PR policy never runs
-these proposed tests.
+these proposed tests. Ordinary CI runs them in a separate read-only job on
+pushes to `main` and pull requests.
 
 See the
 [maintainer procedure](MAINTAINERS.md#merge-migration-guides-before-updating-the-draft)

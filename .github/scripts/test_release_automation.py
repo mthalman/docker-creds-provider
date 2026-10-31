@@ -66,6 +66,9 @@ class ReleaseAutomationTests(unittest.TestCase):
             ))
         self.assertTrue(links)
         self.assertEqual(set(links), {sha})
+        maintainers = (ROOT / "MAINTAINERS.md").read_text(encoding="utf-8")
+        self.assertIn(f"**{references[0][2]}**", maintainers)
+        self.assertIn(f"`{sha}`", maintainers)
 
     def test_policy_is_only_a_trusted_reusable_call(self):
         self.assertEqual(set(self.policy["on"]), {"pull_request_target"})
@@ -217,6 +220,26 @@ class ReleaseAutomationTests(unittest.TestCase):
 
     def test_product_ci_runs_when_generated_pr_is_ready(self):
         self.assertIn("ready_for_review", workflow("ci.yml")["on"]["pull_request"]["types"])
+
+    def test_consumer_contract_tests_run_in_unprivileged_ci_from_repository_root(self):
+        ci = workflow("ci.yml")
+        self.assertEqual(set(ci["on"]), {"push", "pull_request"})
+        job = ci["jobs"]["release-integration"]
+        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertNotIn("environment", job)
+        self.assertNotIn("if", job)
+        self.assertNotIn("continue-on-error", job)
+        self.assertEqual(job["defaults"]["run"]["working-directory"], ".")
+        checkout = next(step for step in job["steps"]
+                        if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+        self.assertEqual([step["run"] for step in job["steps"] if "run" in step], [
+            "python -m pip install -r .github/scripts/requirements.txt",
+            "python -B -m unittest discover -s .github/scripts -p test_release_automation.py",
+        ])
+        for step in job["steps"]:
+            self.assertNotIn("if", step)
+            self.assertNotIn("continue-on-error", step)
 
     def test_renovate_groups_toolkit_entrypoints(self):
         config = json.loads((ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))
