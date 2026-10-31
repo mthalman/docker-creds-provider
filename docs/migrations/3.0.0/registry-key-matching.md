@@ -7,6 +7,9 @@ files, or multiple inline credentials for the same registry. You generally do
 not need to change calls that pass a valid hostname and use a single matching
 Docker inline credential.
 
+Also review deployments that set `XDG_CONFIG_HOME`, especially when
+`XDG_CONFIG_DIR` points to a different directory.
+
 Docker Desktop users with its automatically configured credential store generally
 do not need to edit their configuration for the Docker Hub key change below.
 The helper example applies to a custom `credHelpers` entry.
@@ -22,6 +25,10 @@ case-insensitive host match, ignoring namespace paths. `credHelpers` keys
 matched the original API argument exactly, and helpers received that argument
 unchanged. A global `credsStore` worked in both Docker and containers auth files.
 Malformed non-null arguments were not explicitly rejected before lookup.
+
+For the containers configuration directory, the library checked `XDG_CONFIG_DIR`
+and ignored `XDG_CONFIG_HOME`. If `XDG_CONFIG_DIR` was unset or empty, it used
+`.config` under the user's profile directory.
 
 ### Example: Docker Hub credential helper
 
@@ -72,6 +79,21 @@ equivalent keys, rather than taking the first host match. Duplicate keys use
 their last definition. Invalid arguments now throw `ArgumentException` before
 lookup; null still throws `ArgumentNullException`.
 
+The library selects the containers configuration directory as follows, then
+looks for `containers/auth.json` inside it:
+
+| Environment | Directory used |
+| --- | --- |
+| `XDG_CONFIG_HOME` is nonempty | `XDG_CONFIG_HOME`; ignore `XDG_CONFIG_DIR` |
+| `XDG_CONFIG_HOME` is unset or empty | Nonempty `XDG_CONFIG_DIR` (deprecated alias) |
+| Both are unset or empty | `.config` under the user's profile |
+
+**A missing file or missing credentials do not trigger fallback to
+`XDG_CONFIG_DIR`.** Other search rules are unchanged: nonempty
+`REGISTRY_AUTH_FILE` selects only that file. Otherwise, lookup checks the
+`XDG_RUNTIME_DIR` containers file, the selected config-directory file, then
+Docker's configuration.
+
 ### Example: Docker Hub credential helper
 
 With the unchanged configuration, this call no longer selects the
@@ -108,7 +130,9 @@ If no other credentials match, the second call throws `CredsNotFoundException`.
 **Behavioral change.** Existing calls can select different credentials or helpers,
 stop finding credentials, send a different server key to a helper, or throw
 `ArgumentException` instead of reaching configuration lookup. Public method
-signatures are unchanged.
+signatures are unchanged. Setting `XDG_CONFIG_HOME` can now select different
+credentials or exclude credentials that were previously found through
+`XDG_CONFIG_DIR` or the default `.config` directory.
 
 ## Reason for change
 
@@ -116,6 +140,9 @@ Docker and containers auth files have different registry and namespace
 semantics. Format-aware lookup prevents unrelated namespace credentials from
 being selected and makes helper lookup consistent with the server key supplied
 to the helper.
+Using `XDG_CONFIG_HOME` aligns containers configuration discovery with the XDG
+setting, while retaining `XDG_CONFIG_DIR` as a compatibility alias when
+`XDG_CONFIG_HOME` is unset or empty.
 
 ## Recommended action
 
@@ -171,6 +198,35 @@ Already matching host-and-port keys need no change.
 
 ### Containers/Podman auth files
 
+#### Select the intended configuration directory
+
+For example, suppose your environment has:
+
+```text
+XDG_CONFIG_HOME=/srv/new-config
+XDG_CONFIG_DIR=/srv/legacy-config
+```
+
+Before 3.0.0, lookup used `/srv/legacy-config/containers/auth.json`.
+Now it uses `/srv/new-config/containers/auth.json`.
+
+Set `XDG_CONFIG_HOME` to the directory you intend to use. To keep the old file,
+set it to `/srv/legacy-config`; to use the new location, securely provision
+`containers/auth.json` there. If you relied on the profile's `.config`
+directory, point `XDG_CONFIG_HOME` there instead. You can also unset or empty
+`XDG_CONFIG_HOME` to keep using `XDG_CONFIG_DIR`, but prefer the standard setting.
+
+Verify in an isolated environment with disposable credentials and different
+usernames in each auth file. Unset `REGISTRY_AUTH_FILE` and `XDG_RUNTIME_DIR`
+so they do not override the test:
+
+1. Set both config variables. Confirm that lookup uses `XDG_CONFIG_HOME`.
+2. Remove that auth file. Confirm that lookup skips `XDG_CONFIG_DIR` and can
+   continue to Docker's file.
+3. Unset or empty `XDG_CONFIG_HOME`. Confirm that lookup uses `XDG_CONFIG_DIR`.
+
+#### Update containers credential entries
+
 If your file uses `"credsStore": "example"`, replace it with explicit helpers
 for each registry you use:
 
@@ -223,10 +279,12 @@ Both public overloads in `Valleysoft.DockerCredsProvider` are affected:
 - `CredsProvider.GetCredentialsAsync(string registry, CancellationToken cancellationToken)`
 
 Affected configuration includes `auths`, `credHelpers`, `credsStore`,
-`REGISTRY_AUTH_FILE`, and `DOCKER_CONFIG`.
+`REGISTRY_AUTH_FILE`, `DOCKER_CONFIG`, `XDG_CONFIG_HOME`, and the deprecated
+`XDG_CONFIG_DIR` alias.
 
 ## References
 
+- [XDG_CONFIG_HOME discovery and deprecated alias precedence (#94)](https://github.com/mthalman/docker-creds-provider/pull/94)
 - [Format-aware registry matching (#95)](https://github.com/mthalman/docker-creds-provider/pull/95)
 - [Parent-namespace fallback added to containers lookup (#96)](https://github.com/mthalman/docker-creds-provider/pull/96)
 - [Docker credential helper protocol](https://docs.docker.com/reference/cli/docker/login/#credential-helper-protocol)
