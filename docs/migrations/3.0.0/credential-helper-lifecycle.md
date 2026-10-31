@@ -2,15 +2,14 @@
 
 **Version introduced:** 3.0.0
 
-This guide covers native credential helpers that take too long to complete, emit
-more than 1 MiB on either output stream, or rely on a non-UTF-8 encoding.
-Applications using the `netstandard2.0` asset can also be affected by host input-encoding
-compatibility checks. Compatible helpers generally require no application-code
-changes. Inline credentials are unaffected.
+Review this guide if your credential helper takes 30 seconds or longer, writes
+more than 1 MiB to either output stream, or uses an encoding other than UTF-8.
+The `netstandard2.0` asset also checks the host's input encoding.
+Inline credentials are unaffected.
 
-The output limits and encoding changes were introduced in 3.0.0. The fixed
-30-second helper timeout was introduced in 2.3.0 and remains in effect; its
-migration guidance also applies when upgrading from 2.2.4 or earlier to 3.0.0.
+**Version note:** Output limits and encoding checks are new in 3.0.0. The
+30-second timeout already applies in 2.3.0; the timeout guidance is for upgrades
+from 2.2.4 or earlier.
 
 ## Previous behavior
 
@@ -19,20 +18,18 @@ limit, using the runtime's default redirected-stream encodings. The library did
 not check whether the host input encoding produced UTF-8-compatible bytes before
 starting the helper.
 
-Before 2.3.0, helper execution waited indefinitely for the process to exit.
-A slow or interactive helper could eventually succeed after more than 30
-seconds, while a hung helper could leave credential retrieval blocked.
-Version 2.3.0 already enforced the 30-second timeout.
+Before 2.3.0, the library waited indefinitely for helpers to exit.
+Version 2.3.0 introduced the 30-second timeout.
 
 ## New behavior
 
-Each helper invocation has a fixed **30-second timeout**. If the helper does not
-complete within that interval, credential retrieval throws `TimeoutException`;
-it does not return credentials or treat the timeout as missing credentials.
-This applies to both public overloads, including calls without a cancellation
-token and calls with `CancellationToken.None`. A caller's longer cancellation
-deadline does not extend the helper timeout. The timeout is not publicly
-configurable.
+### Timeout
+
+Each helper call has a fixed **30-second timeout**. A timeout throws
+`TimeoutException`, not `CredsNotFoundException`. Both overloads enforce it,
+even with `CancellationToken.None`.
+
+### Output limits
 
 Each helper invocation limits standard output and standard error independently
 to **1 MiB (1,048,576 raw bytes) per stream**. Exactly that many bytes are
@@ -41,6 +38,10 @@ the helper would otherwise return valid credentials. The limit includes
 multibyte UTF-8 sequences, any byte-order mark, and newline bytes. It is not a
 character count or a combined allowance across both streams.
 
+The output limits are not publicly configurable.
+
+### Encoding
+
 Standard output and standard error are decoded as UTF-8. Modern .NET targets
 write standard input as UTF-8 without a byte-order mark. The `netstandard2.0`
 build instead checks that the host input encoding emits no byte-order mark and
@@ -48,17 +49,13 @@ produces the same bytes as UTF-8 for the actual input and newline. If it cannot
 do so, the call fails with a contextual `InvalidOperationException` before
 starting the helper. The library does not change process-wide console encoding.
 
-The output limits are not publicly configurable.
-
 ## Type of breaking change
 
 **Behavioral change.** Helpers that previously succeeded with oversized output or
 runtime-default encodings can now fail or return differently decoded values.
 The .NET Standard input-encoding check can reject a call that previously started
-the helper. For callers upgrading from before 2.3.0, a helper that previously
-succeeded after more than 30 seconds can now throw `TimeoutException`.
-The 30-second limit is unchanged for callers upgrading from 2.3.0.
-Public method signatures and supported target frameworks are unchanged in 3.0.0.
+the helper. Upgrades from before 2.3.0 also introduce `TimeoutException` for
+helpers that take too long. The timeout is unchanged from 2.3.0.
 
 ## Reason for change
 
@@ -70,26 +67,24 @@ retrieval indefinitely.
 
 ## Recommended action
 
-For a compatible helper, keep your existing credential lookup and exception
-handling. Verify a lookup on each deployed runtime with disposable credentials,
-including non-ASCII credential values if you use them, and check the returned
-values without logging secrets.
+Test a lookup with disposable credentials on each deployed runtime. Check the
+returned values without logging secrets. If the helper meets these requirements,
+no changes are needed.
 
-If your helper can take 30 seconds or longer, update or configure it to complete
-within the timeout. Complete any interactive login or credential-store unlock
-through the helper's supported procedure before calling the library. Check slow
-network requests and custom helper startup work rather than increasing the
-caller's cancellation deadline; no library setting disables or increases the
-timeout.
+### Slow or interactive helpers
 
-Handle `TimeoutException` around the awaited lookup if your application needs
-to report or recover from a timed-out helper. Do not rely solely on
-`CredsNotFoundException` handling. Verify a successful lookup within 30 seconds
-on each deployed host. In an isolated test configuration with a disposable
-helper that stays running without completing its response for longer than 30
-seconds, verify that the lookup throws `TimeoutException`. Allow time for
-process cleanup rather than requiring the exception at exactly 30 seconds.
-Passing `CancellationToken.None` must not disable this timeout.
+Update or configure the helper to finish within 30 seconds. Complete any login
+or credential-store unlock before calling the library. Investigate slow network
+requests or helper startup work; increasing your cancellation deadline will not
+help.
+
+Catch `TimeoutException` around the awaited lookup if you need to report or
+recover from timeouts. To verify this handling, use an isolated test helper that
+stays running for longer than 30 seconds. Confirm that lookup throws
+`TimeoutException`, even with `CancellationToken.None`. Allow extra time for
+process cleanup.
+
+### Oversized output
 
 If a helper exceeds the output limit, update or configure it to reduce its
 response or diagnostics. For custom helpers, keep each stream within 1 MiB for
@@ -98,6 +93,8 @@ response to standard output and never include secrets in diagnostics. There is
 no library setting to increase the limit. To verify a custom helper's boundary
 handling, check that 1,048,576 bytes on standard error are permitted and
 1,048,577 bytes fail even when standard output contains valid credential JSON.
+
+### Encoding problems
 
 If a helper relies on another encoding, update or configure it to consume the
 newline-terminated UTF-8 server key and emit UTF-8 responses. Verify non-ASCII

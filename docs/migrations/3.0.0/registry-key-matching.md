@@ -79,18 +79,20 @@ equivalent keys, rather than taking the first host match. Duplicate keys use
 their last definition. Invalid arguments now throw `ArgumentException` before
 lookup; null still throws `ArgumentNullException`.
 
-The containers configuration directory now comes from nonempty
-`XDG_CONFIG_HOME`. The deprecated `XDG_CONFIG_DIR` alias is consulted only when
-`XDG_CONFIG_HOME` is unset or empty. If both are unset or empty, the directory
-still defaults to `.config` under the user's profile. The candidate file is
-`containers/auth.json` within the selected directory.
+The library selects the containers configuration directory as follows, then
+looks for `containers/auth.json` inside it:
 
-Directory selection does not depend on whether that file exists or contains
-matching credentials. When nonempty `XDG_CONFIG_HOME` is set, the library never
-falls back to `XDG_CONFIG_DIR`, even if the `XDG_CONFIG_HOME` auth file is missing. Other
-discovery rules are unchanged: nonempty `REGISTRY_AUTH_FILE` selects only that
-file; otherwise the `XDG_RUNTIME_DIR` containers file is checked before the
-selected config-directory file, followed by Docker's configuration.
+| Environment | Directory used |
+| --- | --- |
+| `XDG_CONFIG_HOME` is nonempty | `XDG_CONFIG_HOME`; ignore `XDG_CONFIG_DIR` |
+| `XDG_CONFIG_HOME` is unset or empty | Nonempty `XDG_CONFIG_DIR` (deprecated alias) |
+| Both are unset or empty | `.config` under the user's profile |
+
+**A missing file or missing credentials do not trigger fallback to
+`XDG_CONFIG_DIR`.** Other search rules are unchanged: nonempty
+`REGISTRY_AUTH_FILE` selects only that file. Otherwise, lookup checks the
+`XDG_RUNTIME_DIR` containers file, the selected config-directory file, then
+Docker's configuration.
 
 ### Example: Docker Hub credential helper
 
@@ -198,29 +200,30 @@ Already matching host-and-port keys need no change.
 
 #### Select the intended configuration directory
 
-If you set both variables to different directories, decide which auth file
-the application should use. For example, with `XDG_CONFIG_HOME=/srv/new-config`
-and `XDG_CONFIG_DIR=/srv/legacy-config`, older versions checked
-`/srv/legacy-config/containers/auth.json`; 3.0.0 checks
-`/srv/new-config/containers/auth.json` instead. A missing file at the new location
-does not cause a retry at the legacy location.
+For example, suppose your environment has:
 
-To keep using the legacy file, set `XDG_CONFIG_HOME=/srv/legacy-config` in the
-application's environment, or unset/empty `XDG_CONFIG_HOME` while retaining the
-alias. Prefer setting `XDG_CONFIG_HOME` explicitly and retiring the deprecated alias. To
-adopt the new directory, securely provision the intended `containers/auth.json`
-there with appropriate permissions. If you previously relied on the default
-profile `.config` directory while setting `XDG_CONFIG_HOME` elsewhere, point
-`XDG_CONFIG_HOME` at that default directory or provision the new location.
+```text
+XDG_CONFIG_HOME=/srv/new-config
+XDG_CONFIG_DIR=/srv/legacy-config
+```
 
-Verify with a disposable configuration and distinct non-secret usernames in the
-`XDG_CONFIG_HOME`, `XDG_CONFIG_DIR`, and Docker files. Unset `REGISTRY_AUTH_FILE`
-and `XDG_RUNTIME_DIR` in that isolated test so they do not mask directory
-selection. With both config variables set, confirm that a lookup uses
-`XDG_CONFIG_HOME` credentials. Remove that auth file and confirm that
-`XDG_CONFIG_DIR` credentials are not used; lookup can continue to Docker's file.
-Then unset or empty `XDG_CONFIG_HOME` and confirm that the `XDG_CONFIG_DIR` file
-is used. Do not log passwords or tokens.
+Before 3.0.0, lookup used `/srv/legacy-config/containers/auth.json`.
+Now it uses `/srv/new-config/containers/auth.json`.
+
+Set `XDG_CONFIG_HOME` to the directory you intend to use. To keep the old file,
+set it to `/srv/legacy-config`; to use the new location, securely provision
+`containers/auth.json` there. If you relied on the profile's `.config`
+directory, point `XDG_CONFIG_HOME` there instead. You can also unset or empty
+`XDG_CONFIG_HOME` to keep using `XDG_CONFIG_DIR`, but prefer the standard setting.
+
+Verify in an isolated environment with disposable credentials and different
+usernames in each auth file. Unset `REGISTRY_AUTH_FILE` and `XDG_RUNTIME_DIR`
+so they do not override the test:
+
+1. Set both config variables. Confirm that lookup uses `XDG_CONFIG_HOME`.
+2. Remove that auth file. Confirm that lookup skips `XDG_CONFIG_DIR` and can
+   continue to Docker's file.
+3. Unset or empty `XDG_CONFIG_HOME`. Confirm that lookup uses `XDG_CONFIG_DIR`.
 
 #### Update containers credential entries
 
