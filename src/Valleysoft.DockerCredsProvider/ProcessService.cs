@@ -280,14 +280,22 @@ internal class ProcessService : IProcessService
         }
 
         StreamReader reader = standardOutput ? process.StandardOutput : process.StandardError;
-        return ReadOutputAsync(
-            reader.BaseStream,
-            reader.CurrentEncoding,
-            standardOutput ? "standard output" : "standard error",
-            maxOutputBytes);
+        Stream stream = reader.BaseStream;
+        Encoding encoding = reader.CurrentEncoding;
+        // Windows process pipes are synchronous; ReadAsync would block shared thread-pool workers.
+        // Dedicated readers let idle helpers coexist without starving other lookups or their deadlines.
+        return Task.Factory.StartNew(
+            () => ReadOutput(
+                stream,
+                encoding,
+                standardOutput ? "standard output" : "standard error",
+                maxOutputBytes),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
     }
 
-    private static async Task<string> ReadOutputAsync(
+    private static string ReadOutput(
         Stream stream,
         Encoding encoding,
         string streamName,
@@ -303,7 +311,7 @@ internal class ProcessService : IProcessService
         {
             while (true)
             {
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
                 if (bytesRead == 0)
                 {
                     return DecodeOutput(output, encoding);
