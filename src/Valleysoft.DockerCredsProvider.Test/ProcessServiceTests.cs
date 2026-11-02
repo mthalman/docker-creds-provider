@@ -737,17 +737,19 @@ public class ProcessServiceTests
     {
         using CancellationTokenSource cancellation = new();
         using ProcessObservation observation = new();
-        List<Task<ProcessResult>> idleHelpers = new();
+        List<(Task<ProcessResult> Task, ProcessObservation Observation)> idleHelpers = new();
         try
         {
             for (int index = 0; index < 4; index++)
             {
-                idleHelpers.Add(new ProcessService().RunAsync(
+                ProcessObservation idleObservation = new();
+                Task<ProcessResult> idleHelper = new ProcessService(idleObservation.Capture).RunAsync(
                     CreateHelperCommand("wait"),
                     input: null,
                     OutputLimit,
                     Timeout.InfiniteTimeSpan,
-                    cancellation.Token));
+                    cancellation.Token);
+                idleHelpers.Add((idleHelper, idleObservation));
             }
 
             ProcessResult result = await new ProcessService(observation.Capture).RunAsync(
@@ -760,14 +762,24 @@ public class ProcessServiceTests
             Assert.Equal(0, result.ExitCode);
             Assert.Equal(fixtureStream == "stdout" ? OutputLimit - 1 : 0, result.StandardOutput.Length);
             Assert.Equal(fixtureStream == "stderr" ? OutputLimit - 1 : 0, result.StandardError.Length);
-            Assert.All(idleHelpers, helper => Assert.False(helper.IsCompleted));
+            Assert.All(idleHelpers, helper => Assert.False(helper.Task.IsCompleted));
             observation.AssertExitedAndDisposed();
         }
         finally
         {
             cancellation.Cancel();
-            await Task.WhenAll(idleHelpers.Select(helper =>
-                Assert.ThrowsAnyAsync<OperationCanceledException>(() => helper)));
+            await Task.WhenAll(idleHelpers.Select(async helper =>
+            {
+                try
+                {
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => helper.Task);
+                    helper.Observation.AssertExitedAndDisposed();
+                }
+                finally
+                {
+                    helper.Observation.Dispose();
+                }
+            }));
         }
     }
 
