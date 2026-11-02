@@ -730,6 +730,59 @@ public class ProcessServiceTests
         observation.AssertExitedAndDisposed();
     }
 
+    [Theory]
+    [InlineData("stdout")]
+    [InlineData("stderr")]
+    public async Task RunAsync_DrainsOutputWhileOtherHelpersAreIdle(string fixtureStream)
+    {
+        using CancellationTokenSource cancellation = new();
+        using ProcessObservation observation = new();
+        List<(Task<ProcessResult> Task, ProcessObservation Observation)> idleHelpers = new();
+        try
+        {
+            for (int index = 0; index < 4; index++)
+            {
+                ProcessObservation idleObservation = new();
+                Task<ProcessResult> idleHelper = new ProcessService(idleObservation.Capture).RunAsync(
+                    CreateHelperCommand("wait"),
+                    input: null,
+                    OutputLimit,
+                    Timeout.InfiniteTimeSpan,
+                    cancellation.Token);
+                idleHelpers.Add((idleHelper, idleObservation));
+            }
+
+            ProcessResult result = await new ProcessService(observation.Capture).RunAsync(
+                CreateHelperCommand("output", fixtureStream, (OutputLimit - 1).ToString(CultureInfo.InvariantCulture)),
+                input: null,
+                OutputLimit,
+                TimeSpan.FromSeconds(5),
+                CancellationToken.None);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal(fixtureStream == "stdout" ? OutputLimit - 1 : 0, result.StandardOutput.Length);
+            Assert.Equal(fixtureStream == "stderr" ? OutputLimit - 1 : 0, result.StandardError.Length);
+            Assert.All(idleHelpers, helper => Assert.False(helper.Task.IsCompleted));
+            observation.AssertExitedAndDisposed();
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Task.WhenAll(idleHelpers.Select(async helper =>
+            {
+                try
+                {
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => helper.Task);
+                    helper.Observation.AssertExitedAndDisposed();
+                }
+                finally
+                {
+                    helper.Observation.Dispose();
+                }
+            }));
+        }
+    }
+
     [Fact]
     public async Task RunAsync_TimeoutIncludesBlockedInputWrite()
     {

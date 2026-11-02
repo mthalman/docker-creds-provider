@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Valleysoft.DockerCredsProvider;
@@ -280,18 +281,34 @@ internal class ProcessService : IProcessService
         }
 
         StreamReader reader = standardOutput ? process.StandardOutput : process.StandardError;
-        return ReadOutputAsync(
-            reader.BaseStream,
-            reader.CurrentEncoding,
-            standardOutput ? "standard output" : "standard error",
-            maxOutputBytes);
+        Stream stream = reader.BaseStream;
+        Encoding encoding = reader.CurrentEncoding;
+        string streamName = standardOutput ? "standard output" : "standard error";
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return ReadOutputAsync(stream, encoding, streamName, maxOutputBytes, readSynchronously: false);
+        }
+
+        // Windows process pipes are synchronous; ReadAsync would block shared thread-pool workers.
+        // The synchronous read loop never yields, so it stays on its dedicated thread.
+        return Task.Factory.StartNew(
+            () => ReadOutputAsync(
+                stream,
+                encoding,
+                streamName,
+                maxOutputBytes,
+                readSynchronously: true),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Unwrap();
     }
 
     private static async Task<string> ReadOutputAsync(
         Stream stream,
         Encoding encoding,
         string streamName,
-        int maxOutputBytes)
+        int maxOutputBytes,
+        bool readSynchronously)
     {
         using MemoryStream output = new(Math.Min(maxOutputBytes, StreamBufferSize));
         int bufferSize = maxOutputBytes < StreamBufferSize
@@ -303,7 +320,9 @@ internal class ProcessService : IProcessService
         {
             while (true)
             {
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                int bytesRead = readSynchronously
+                    ? stream.Read(buffer, 0, buffer.Length)
+                    : await stream.ReadAsync(buffer, 0, buffer.Length);
                 if (bytesRead == 0)
                 {
                     return DecodeOutput(output, encoding);
