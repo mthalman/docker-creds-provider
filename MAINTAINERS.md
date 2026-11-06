@@ -1,22 +1,42 @@
 # Maintainers
 
+Use this guide to label pull requests, prepare release notes, and publish a
+stable package. For local builds and migration-fragment authoring, use the
+[contributor guide](CONTRIBUTING.md).
+
+| Task | Procedure |
+| --- | --- |
+| Classify a pull request | [Label pull requests](#label-pull-requests) |
+| Review generated migration topics | [Merge migration guides before updating the draft](#merge-migration-guides-before-updating-the-draft) |
+| Repair migration guidance | [Correct migration guides](#correct-migration-guides) |
+| Change the pinned automation version | [Upgrade the shared toolkit](#upgrade-the-shared-toolkit) |
+| Set up NuGet publication | [Configure trusted publishing](#configure-trusted-publishing) |
+| Publish or recover a release | [Publish a release](#publish-a-release) |
+
+Do not push a release tag until Release Drafter has successfully prepared the
+draft and any generated migration-guide PR has merged. A waiting or stale
+draft is not ready for publication.
+
 ## Label pull requests
 
 Apply exactly one semantic-version label based on the highest-impact public
 change:
 
-- `semver:major` for breaking public API or behavior
-- `semver:minor` for backward-compatible public functionality
-- `semver:patch` for fixes, documentation, dependencies, tests, build changes,
-  or maintenance
+| Label | Change |
+| --- | --- |
+| `semver:major` | Breaking public API or behavior |
+| `semver:minor` | Backward-compatible public functionality |
+| `semver:patch` | Fixes, documentation, dependencies, tests, build changes, or maintenance |
 
 Apply at most one release-note category:
 
-- `enhancement` for features
-- `bug` for fixes
-- `documentation` for documentation-only changes
-- `dependencies` for dependency updates
-- No category for maintenance, refactoring, tests, or infrastructure
+| Category | Change |
+| --- | --- |
+| `enhancement` | Features |
+| `bug` | Fixes |
+| `documentation` | Documentation-only changes |
+| `dependencies` | Dependency updates |
+| None | Maintenance, refactoring, tests, or infrastructure |
 
 For mixed pull requests, classify by the highest-impact public change. A
 test-heavy product bug fix is `bug`; a dependency update spanning production
@@ -64,18 +84,21 @@ boundaries, history retention, and corrections.
 
 ### Enable migration automation
 
-Complete rollout through the repository's normal review process:
+Use this checklist when enabling the integration or changing its required
+checks. Routine releases use the
+[draft review cycle](#merge-migration-guides-before-updating-the-draft)
+and [publication procedure](#publish-a-release).
 
-1. Allow the pinned reusable workflows and Actions in repository/organization
+1. Allow the pinned reusable workflows and Actions in repository or organization
    Actions policy. Enable **Allow GitHub Actions to create and approve pull
    requests**. The default labels listed above must exist.
-2. Remove the obsolete **Test migration tooling** requirement from the `main`
-   ruleset before merging the workflow removal; otherwise the missing check
-   blocks merging. Keep the .NET checks.
+2. If the `main` ruleset still requires the obsolete **Test migration tooling**
+   check, remove that requirement before merging the workflow removal.
+   Otherwise, a missing check blocks merging. Keep the .NET checks.
 3. Merge the callers into `main`. `pull_request_target` uses the base workflow;
    an unmerged onboarding PR cannot demonstrate the new policy.
 4. Trigger a PR event and inspect the actual nested check name for the shared
-   **Validate migration notes** job. In the `main` ruleset, replace the old
+   **Validate migration notes** job. If needed, in the `main` ruleset replace the old
    standalone **Validate migration notes** requirement with that observed
    name. Do not guess the nested name or remove the policy requirement without
    adding its replacement.
@@ -101,7 +124,7 @@ dependencies are never executed or installed in this job.
 
 Toolkit behavior is tested upstream; there is no separate migration-tooling
 test workflow in this repository. Local consumer integration tests remain
-available. See [CONTRIBUTING.md](CONTRIBUTING.md#document-a-breaking-change)
+available. See [Document a breaking change](CONTRIBUTING.md#document-a-breaking-change)
 for the six-section fragment format, local tests, and preview instructions.
 
 Release Drafter selects the latest `main` snapshot, resolves one version and

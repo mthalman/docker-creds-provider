@@ -1,17 +1,23 @@
 # Contributing
 
-Contributions are welcome. Open an issue to discuss a bug or proposed change,
-or submit a pull request with a focused implementation.
+Use this guide to build the library, verify a change, and submit a pull
+request. For package installation and usage, start with the [README](README.md).
+Release setup and publication belong in the [maintainer guide](MAINTAINERS.md).
+
+Open an issue to discuss a bug or proposed change, or submit a focused pull
+request with its user-visible effect.
 
 ## Prerequisites
 
 Install Git and a stable .NET SDK compatible with [`global.json`](global.json).
 Download the SDK from the
 [.NET download page](https://dotnet.microsoft.com/download).
+Check `global.json` for SDK selection and the project files for target
+frameworks. Preserve every declared library target when changing the build.
 
 ## Build and test locally
 
-From the repository root, run:
+Run the .NET commands from `src`. Starting at the repository root:
 
 ```console
 cd src
@@ -19,6 +25,8 @@ dotnet restore
 dotnet build -c Release --no-restore
 dotnet test --no-restore -v normal -c Release --results-directory test-results -l trx
 ```
+
+All tests should pass. TRX results are written under `src/test-results`.
 
 To create package artifacts, continue from `src`:
 
@@ -31,12 +39,18 @@ dotnet pack -c Release --no-build --output package-output Valleysoft.DockerCreds
 Before opening a pull request:
 
 1. Add or update tests for behavior changes.
-2. Update `README.md` when a change affects installation, configuration, the
-   public API, or error behavior. For breaking changes, also add a
+2. Update `README.md` and the affected reference when a change affects
+   installation, configuration, the public API, or error behavior.
+   For breaking changes, also add a
    [migration fragment](#document-a-breaking-change); keep upgrade instructions out of
    README.md.
 3. Keep the pull request focused on one change and explain its user-visible
    effect.
+
+Every pull request needs exactly one semantic-version label and at most one
+release-note category. Use the
+[labeling rules](MAINTAINERS.md#label-pull-requests) to classify the change.
+Breaking changes require `semver:major` and must not use `skip-changelog`.
 
 ## Document a breaking change
 
@@ -94,9 +108,10 @@ related documentation when available. Do not guess a PR number or release
 version. Make the topic title meaningful without the body so readers can decide
 whether the change applies to them.
 
+Verify the previous and new behavior against their implementations or tests.
 Reviewers must check technical accuracy, compatibility classification,
-affected-API coverage, and completeness; tooling does not infer
-instructions from code.
+affected overloads, and actionable migration steps. Tooling validates the
+format; it does not infer consumer instructions from code.
 
 ### Correct migration guidance
 
@@ -145,7 +160,7 @@ python -m pip install -r .github/scripts/requirements.txt
 python -B -m unittest discover -s .github/scripts -p test_release_automation.py
 ```
 
-These tests require Python and Bash (Git for Windows provides Bash). They check
+These tests require Python and Bash. They check
 the consumer workflow contract and execute the package-version validation
 script. Toolkit unit tests remain upstream; the trusted PR policy never runs
 these proposed tests. Ordinary CI runs them in a separate read-only job on
