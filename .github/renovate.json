@@ -4,7 +4,9 @@
     "config:best-practices"
   ],
   "mode": "full",
-  "dependencyDashboard": false,
+  "dependencyDashboard": {
+    "enabled": false
+  },
   "dependencyDashboardApproval": false,
   "minimumReleaseAge": "10 days",
   "packageRules": [
