@@ -48,6 +48,12 @@ users do not need to know about. Do not apply it to production dependency
 updates, user-facing fixes, features, documentation, significant release
 behavior, or a breaking-change PR.
 
+Renovate applies these labels automatically. Updates to packages shipped by the
+library project, except build-only MinVer, get `semver:patch` and
+`dependencies`; all other Renovate updates get `semver:patch` and
+`skip-changelog`. Review the labels before merging. If you change a Renovate
+PR's labels, Renovate stops synchronizing labels on that PR.
+
 ## Versioning and releases
 
 [MinVer](https://github.com/adamralph/minver) derives package and assembly
