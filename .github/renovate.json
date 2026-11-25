@@ -9,11 +9,19 @@
   },
   "dependencyDashboardApproval": false,
   "minimumReleaseAge": "10 days",
+  "labels": ["semver:patch", "skip-changelog"],
   "packageRules": [
     {
       "matchManagers": ["github-actions"],
       "matchPackageNames": ["mthalman/release-automation", "mthalman/release-automation/**"],
       "groupName": "release-automation"
+    },
+    {
+      "description": "Shipped package dependencies appear in release notes. A separate group prevents mixed PRs from combining their labels with skip-changelog.",
+      "matchFileNames": ["src/Valleysoft.DockerCredsProvider/Valleysoft.DockerCredsProvider.csproj"],
+      "matchPackageNames": ["!MinVer"],
+      "groupName": "library dependencies",
+      "labels": ["semver:patch", "dependencies"]
     }
   ]
 }
